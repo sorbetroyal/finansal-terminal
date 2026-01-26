@@ -6,3 +6,4 @@ yfinance
 borsapy
 python-dotenv
 scipy
+supabase
