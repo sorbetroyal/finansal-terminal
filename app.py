@@ -600,17 +600,19 @@ st.markdown("""
         background: rgba(255, 255, 255, 0.02);
     }
 
+    div.stButton > button, div.stButton > button p, div.stButton > button span {
+        white-space: nowrap !important;
+        font-size: 0.72rem !important;
+    }
     div.stButton > button {
         background: rgba(255, 255, 255, 0.03) !important;
         border: 1px solid rgba(255, 255, 255, 0.05) !important;
         border-radius: 10px !important;
         color: rgba(255, 255, 255, 0.7) !important;
         font-weight: 600 !important;
-        font-size: 0.72rem !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        padding: 0px 5px !important;
+        padding: 0px 10px !important;
+        min-height: 38px !important;
+        height: 38px !important;
     }
     div.stButton > button:hover {
         background: rgba(0, 242, 255, 0.1) !important;
@@ -806,7 +808,7 @@ if not ticker_data_html:
 
 
 
-nav_cols = st.columns([1.1, 1.9], gap="small")
+nav_cols = st.columns([0.8, 2.2], gap="small")
 with nav_cols[0]:
     # Interactive Tab Switcher
     tab_cols = st.columns([1, 1, 1, 1], gap="small")
