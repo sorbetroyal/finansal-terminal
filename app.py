@@ -116,6 +116,7 @@ def asset_management_dialog():
             div[data-testid="stDialog"] select {
                 background-color: #1a1c23 !important;
                 color: white !important;
+                border: 1px solid rgba(255,255,255,0.15) !important;
                 border-radius: 8px !important;
             }
 
@@ -126,11 +127,15 @@ def asset_management_dialog():
                 -webkit-text-fill-color: white !important;
             }
 
-            /* 5. Selectbox items */
-            div[data-baseweb="select"] > div {
+            /* 5. Selectbox Dropdown Fix (Inside Dialog) */
+            [data-baseweb="popover"] div, [data-baseweb="menu"] div, [data-baseweb="menu"] li {
                 background-color: #1a1c23 !important;
                 color: white !important;
-                border: 1px solid rgba(255,255,255,0.2) !important;
+            }
+            
+            [data-baseweb="menu"] li:hover {
+                background-color: rgba(0, 242, 255, 0.2) !important;
+                color: #00f2ff !important;
             }
             
             /* 6. Tabs styling */
@@ -427,12 +432,18 @@ st.markdown("""
         color: white !important;
         font-weight: 600 !important;
     }
-    div[data-baseweb="popover"], div[data-baseweb="menu"] {
-        background-color: #0b0e14 !important;
+    div[data-baseweb="popover"], div[data-baseweb="menu"], [id^="bui-"] {
+        background-color: #161a21 !important;
         border: 1px solid rgba(255,255,255,0.1) !important;
-    }
-    li[role="option"] {
         color: white !important;
+    }
+    li[role="option"], li[data-testid="stSelectboxVirtualListRow"] {
+        color: white !important;
+        background-color: transparent !important;
+    }
+    li[role="option"]:hover {
+        background-color: rgba(0, 242, 255, 0.1) !important;
+        color: #00f2ff !important;
     }
     div[data-baseweb="select"] svg {
         fill: white !important;
