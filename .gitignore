@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Streamlit
+.streamlit/
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (local portfolio - each user has their own in cloud)
+portfolio.json
+portfolios/
+alerts.json
+settings.json
+
+# Build artifacts
+*.spec
+build/
+dist/
+*.exe
+launcher.py
+
+# Node
+node_modules/
+package-lock.json
+
+# Backup and debug files
+backups/
+*.txt
+!requirements.txt
+debug_*.py
+test_*.py
+cleanup_*.py
+init_data.py
+verify_*.py
+
+# Next.js
+.next/
+vibe-coding-starter/
