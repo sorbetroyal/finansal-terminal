@@ -432,18 +432,23 @@ st.markdown("""
         color: white !important;
         font-weight: 600 !important;
     }
-    div[data-baseweb="popover"], div[data-baseweb="menu"], [id^="bui-"] {
-        background-color: #161a21 !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        color: white !important;
+    /* ULTIMATE SELECTBOX LIST VISIBILITY FIX */
+    [data-baseweb="popover"] ul {
+        background-color: #1a1c23 !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
     }
-    li[role="option"], li[data-testid="stSelectboxVirtualListRow"] {
-        color: white !important;
-        background-color: transparent !important;
+    [data-baseweb="popover"] li {
+        background-color: #1a1c23 !important;
+        color: #FFFFFF !important;
+        font-family: 'Outfit', sans-serif !important;
     }
-    li[role="option"]:hover {
-        background-color: rgba(0, 242, 255, 0.1) !important;
-        color: #00f2ff !important;
+    [data-baseweb="popover"] li:hover {
+        background-color: #00f2ff !important;
+        color: #0b0e14 !important;
+    }
+    /* Simple fallback for any other dropdown type */
+    div.stSelectbox div[role="listbox"] {
+        background-color: #1a1c23 !important;
     }
     div[data-baseweb="select"] svg {
         fill: white !important;
