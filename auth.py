@@ -68,16 +68,16 @@ def register(email: str, password: str) -> tuple[bool, str]:
         })
         
         if response.user:
-            # If confirmation is OFF, Supabase often returns a session immediately
+            # Check for immediate session (Auto-confirm is ON in Supabase)
             if hasattr(response, 'session') and response.session:
                 st.session_state.user = response.user
                 st.session_state.access_token = response.session.access_token
-                return True, "🎉 Kayıt başarılı ve giriş yapıldı! Hoş geldiniz."
-            
-            # If confirmation is ON or no session returned yet
-            return True, "✅ Kayıt başarılı! Şimdi giriş sekmesinden e-posta ve şifrenizle giriş yapabilirsiniz."
+                return True, "🎉 Kayıt başarılı! Uygulamaya giriş yapılıyor..."
+            else:
+                return True, "✅ Kayıt başarılı! Lütfen giriş yapın."
         
-        return False, "Kayıt işlemi sırasında bir sorun oluştu."
+        return False, "Kullanıcı oluşturulamadı. Bilgileri kontrol edin."
+
 
         
     except Exception as e:
@@ -176,8 +176,12 @@ def render_auth_page():
                             success, message = register(reg_email, reg_password)
                             if success:
                                 st.success(message)
+                                import time
+                                time.sleep(1)
+                                st.rerun()
                             else:
                                 st.error(message)
+
                     else:
                         st.warning("Lütfen tüm alanları doldurun.")
 

@@ -421,15 +421,14 @@ def portfolio_management_dialog():
     else:
         st.info("ℹ️ Henüz portföy yok.")
 
-# PAGE CONFIG
-st.set_page_config(page_title="Finansal Terminal v4", layout="wide", initial_sidebar_state="collapsed")
-
-# ==================== AUTHENTICATION CHECK ====================
+# ==================== PAGE CONFIG & AUTH ====================
+st.set_page_config(page_title="Finansal Terminal", layout="wide", initial_sidebar_state="collapsed")
 init_auth_state()
 
 if not get_current_user():
     render_auth_page()
     st.stop()
+
 
 # PREMIUM MODERN DESIGN SYSTEM (v4)
 st.markdown("""

@@ -790,8 +790,12 @@ def load_portfolio():
         
         # If no portfolios exist, create a default one
         if not result["portfolios"]:
-            create_portfolio("Genel")
-            return load_portfolio()
+            if create_portfolio("Genel"):
+                return load_portfolio()
+            else:
+                # Fallback to avoid infinite recursion
+                return {"portfolios": {"Genel": {"holdings": [], "history": []}}, "selected_for_total": ["Genel"]}
+
         
         return result
         
@@ -809,26 +813,20 @@ def create_portfolio(name):
     if not user_id:
         return False
     try:
-        # Check if already exists (global or user specific)
-        existing = supabase.table("portfolios").select("id, user_id").eq("name", name).execute()
+        # Check if THIS user already has a portfolio with this name
+        existing = supabase.table("portfolios").select("id").eq("user_id", user_id).eq("name", name).execute()
         if existing.data:
-            ext = existing.data[0]
-            if ext.get("user_id") == user_id:
-                return True # Already exists for user
-            elif ext.get("user_id") is None:
-                # Claim orphaned
-                supabase.table("portfolios").update({"user_id": user_id}).eq("id", ext["id"]).execute()
-                return True
-            else:
-                # Exists for someone else and unique constraint prevents duplicate names
-                print(f"Portfolio name '{name}' is already taken by another user.")
-                return False
-                
-        supabase.table("portfolios").insert({"name": name, "user_id": user_id}).execute()
+            return True # Already exists for this user
+            
+        # Try to insert. If SQL constraint (unique name) still exists globally, this might fail,
+        # but it will print the error instead of hanging.
+        response = supabase.table("portfolios").insert({"name": name, "user_id": user_id}).execute()
         return True
     except Exception as e:
         print(f"Error creating portfolio: {e}")
+        # If it fails, maybe try to claim an orphaned one or just return False
         return False
+
 
 
 def delete_portfolio(name):
