@@ -43,15 +43,20 @@ def login(email: str, password: str) -> tuple[bool, str]:
             st.session_state.user = response.user
             st.session_state.access_token = response.session.access_token
             return True, "Giriş başarılı!"
-        return False, "Giriş başarısız."
+        return False, "Giriş başarısız: Kullanıcı bilgileri alınamadı."
         
     except Exception as e:
         error_msg = str(e)
+        # Detailed error handling
         if "Invalid login credentials" in error_msg:
-            return False, "E-posta veya şifre hatalı!"
+            return False, "E-posta veya şifre hatalı! Lütfen bilgilerinizi kontrol edin."
         elif "Email not confirmed" in error_msg:
-            return False, "E-posta adresinizi doğrulamanız gerekiyor. Gelen kutunuzu kontrol edin."
-        return False, f"Hata: {error_msg}"
+            return False, "⚠️ Bu hesap henüz onaylanmamış! Lütfen e-postanızı kontrol edin veya Supabase panelinden 'Confirm email' ayarını kapatın."
+        elif "captcha" in error_msg.lower():
+            return False, "Güvelik doğrulaması (Captcha) hatası. Supabase panelinden Captcha'yı kapatmayı deneyin."
+        
+        return False, f"Supabase Hatası: {error_msg}"
+
 
 def register(email: str, password: str) -> tuple[bool, str]:
     """Register a new user."""
@@ -63,14 +68,17 @@ def register(email: str, password: str) -> tuple[bool, str]:
         })
         
         if response.user:
-            # Check if email confirmation is required
-            if response.user.confirmed_at is None:
-                return True, "Kayıt başarılı! E-posta adresinize gönderilen doğrulama linkine tıklayın."
-            else:
+            # If confirmation is OFF, Supabase often returns a session immediately
+            if hasattr(response, 'session') and response.session:
                 st.session_state.user = response.user
-                st.session_state.access_token = response.session.access_token if response.session else None
-                return True, "Kayıt başarılı! Giriş yapıldı."
-        return False, "Kayıt başarısız."
+                st.session_state.access_token = response.session.access_token
+                return True, "🎉 Kayıt başarılı ve giriş yapıldı! Hoş geldiniz."
+            
+            # If confirmation is ON or no session returned yet
+            return True, "✅ Kayıt başarılı! Şimdi giriş sekmesinden e-posta ve şifrenizle giriş yapabilirsiniz."
+        
+        return False, "Kayıt işlemi sırasında bir sorun oluştu."
+
         
     except Exception as e:
         error_msg = str(e)
@@ -78,7 +86,10 @@ def register(email: str, password: str) -> tuple[bool, str]:
             return False, "Bu e-posta adresi zaten kayıtlı!"
         elif "Password should be at least" in error_msg:
             return False, "Şifre en az 6 karakter olmalıdır!"
+        elif "over the limit" in error_msg.lower():
+            return False, "Kayıt deneme limitine ulaştınız. Lütfen biraz bekleyin."
         return False, f"Hata: {error_msg}"
+
 
 def logout():
     """Logout the current user."""

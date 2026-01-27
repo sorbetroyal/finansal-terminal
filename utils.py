@@ -654,30 +654,51 @@ def migrate_local_to_supabase(json_path="portfolio.json"):
         
         success_count = 0
         for p_name, p_data in local_data["portfolios"].items():
-            # 1. Create portfolio if it doesn't exist
-            # Check if this user already has a portfolio with this name in Supabase
+            # 1. Create or Get portfolio
+            # First check if this user already has it
             existing_p = supabase.table("portfolios").select("id").eq("user_id", user_id).eq("name", p_name).execute()
             
             if existing_p.data:
                 p_id = existing_p.data[0]["id"]
             else:
-                new_p = supabase.table("portfolios").insert({"name": p_name, "user_id": user_id}).execute()
-                if not new_p.data:
-                    continue
-                p_id = new_p.data[0]["id"]
+                # Check if an orphaned portfolio with this name exists
+                orphaned_p = supabase.table("portfolios").select("id").is_("user_id", "null").eq("name", p_name).execute()
+                
+                if orphaned_p.data:
+                    # Claim the orphaned one
+                    p_id = orphaned_p.data[0]["id"]
+                    supabase.table("portfolios").update({"user_id": user_id}).eq("id", p_id).execute()
+                else:
+                    # Try to create new
+                    try:
+                        new_p = supabase.table("portfolios").insert({"name": p_name, "user_id": user_id}).execute()
+                        if not new_p.data:
+                            # If insert fails (maybe global unique constraint), try to find it regardless of user
+                            any_p = supabase.table("portfolios").select("id").eq("name", p_name).execute()
+                            if any_p.data:
+                                p_id = any_p.data[0]["id"]
+                            else:
+                                continue
+                        else:
+                            p_id = new_p.data[0]["id"]
+                    except:
+                        # Fallback: try to find by name again
+                        any_p = supabase.table("portfolios").select("id").eq("name", p_name).execute()
+                        if any_p.data:
+                            p_id = any_p.data[0]["id"]
+                        else:
+                            continue
             
             # 2. Add holdings
             for h in p_data.get("holdings", []):
-                # Map old structure to new structure
                 symbol = h.get("symbol")
                 amount = float(h.get("amount", 0))
                 cost = float(h.get("cost", 0))
-                asset_type = h.get("type", "bist hisse") # Default to bist
+                asset_type = h.get("type", "bist hisse")
                 purchase_date = h.get("added_at", datetime.now().strftime("%Y-%m-%d"))
-                if " " in purchase_date: # Handle full datetime strings
+                if " " in purchase_date:
                     purchase_date = purchase_date.split(" ")[0]
                 
-                # Check if already exists to avoid duplicates
                 existing_h = supabase.table("holdings").select("id").eq("portfolio_id", p_id).eq("symbol", symbol).eq("purchase_date", purchase_date).execute()
                 
                 if not existing_h.data:
@@ -693,6 +714,7 @@ def migrate_local_to_supabase(json_path="portfolio.json"):
         return True, f"Başarıyla {success_count} varlık Supabase hesabınıza aktarıldı."
     except Exception as e:
         return False, f"Göç hatası: {str(e)}"
+
 
 def claim_orphaned_supabase_data():
     """Assign all portfolios with NULL user_id to the current logged-in user."""
@@ -787,11 +809,27 @@ def create_portfolio(name):
     if not user_id:
         return False
     try:
+        # Check if already exists (global or user specific)
+        existing = supabase.table("portfolios").select("id, user_id").eq("name", name).execute()
+        if existing.data:
+            ext = existing.data[0]
+            if ext.get("user_id") == user_id:
+                return True # Already exists for user
+            elif ext.get("user_id") is None:
+                # Claim orphaned
+                supabase.table("portfolios").update({"user_id": user_id}).eq("id", ext["id"]).execute()
+                return True
+            else:
+                # Exists for someone else and unique constraint prevents duplicate names
+                print(f"Portfolio name '{name}' is already taken by another user.")
+                return False
+                
         supabase.table("portfolios").insert({"name": name, "user_id": user_id}).execute()
         return True
     except Exception as e:
         print(f"Error creating portfolio: {e}")
         return False
+
 
 def delete_portfolio(name):
     """Delete a portfolio for the current user."""
@@ -968,25 +1006,49 @@ def save_selected_portfolios(selected_list):
 ALERTS_FILE = os.path.join(os.path.dirname(__file__), "alerts.json")
 
 def load_alerts():
-    """Load alerts for the current user from Supabase or local file."""
+    """Load alerts for the current user from Supabase with local-to-cloud sync."""
     user_id = get_user_id()
+    local_data = []
+    
+    # 1. Load local results first for possible migration
     try:
-        if user_id:
-            try:
-                response = supabase.table("alerts").select("*").eq("user_id", user_id).execute()
-                return response.data
-            except:
-                pass
-        
-        # Fallback to local
         if os.path.exists(ALERTS_FILE):
             with open(ALERTS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, list) else []
-        return []
+                temp_local = json.load(f)
+                local_data = temp_local if isinstance(temp_local, list) else []
+    except:
+        pass
+
+    try:
+        if user_id:
+            # 2. Try to sync local alerts to Supabase if they are not there
+            if local_data:
+                try:
+                    # Check if we should migrate (simple way: check if local has any)
+                    for al in local_data:
+                        # Only migrate if user_id is missing or matches current
+                        if not al.get("user_id") or al.get("user_id") == user_id:
+                            # Check if already exists in Supabase to avoid duplicates
+                            existing = supabase.table("alerts").select("id").eq("id", al["id"]).execute()
+                            if not existing.data:
+                                al["user_id"] = user_id # Ensure it belongs to current user
+                                supabase.table("alerts").insert(al).execute()
+                    
+                    # Optional: Clean local file after successful sync or mark as synced
+                    # For safety, we keep them but prioritize cloud
+                except Exception as sync_e:
+                    print(f"Alert sync error: {sync_e}")
+
+            # 3. Always return current Supabase data as source of truth
+            response = supabase.table("alerts").select("*").eq("user_id", user_id).execute()
+            if response.data:
+                return response.data
+        
+        return local_data
     except Exception as e:
         print(f"Error loading alerts: {e}")
-        return []
+        return local_data
+
 
 
 def save_alerts_local(alerts):
@@ -1050,7 +1112,8 @@ def delete_alert(alert_id):
         return save_alerts_local(new_alerts)
 
 def check_alerts():
-    """Check all active alerts against current prices."""
+    """Check all active alerts against current prices and update Supabase."""
+    user_id = get_user_id()
     alerts = load_alerts()
     active_alerts = [a for a in alerts if not a.get("triggered", False)]
     
@@ -1084,25 +1147,34 @@ def check_alerts():
                 
                 # Update in DB
                 try:
-                    supabase.table("alerts").update({
-                        "triggered": True, 
-                        "triggered_at": alert["triggered_at"], 
-                        "trigger_price": price
-                    }).eq("id", alert["id"]).execute()
+                    if user_id:
+                        supabase.table("alerts").update({
+                            "triggered": True, 
+                            "triggered_at": alert["triggered_at"], 
+                            "trigger_price": price
+                        }).eq("id", alert["id"]).eq("user_id", user_id).execute()
+                    else:
+                        raise Exception("No user_id")
                 except:
+                    # Fallback update in local alerts.json if needed
                     pass
     
     if triggered_alerts:
-        all_alerts = load_alerts()
-        for t in triggered_alerts:
-            for a in all_alerts:
-                if str(a.get("id")) == str(t.get("id")):
-                    a["triggered"] = True
-                    a["triggered_at"] = t["triggered_at"]
-                    a["trigger_price"] = t["trigger_price"]
-        save_alerts_local(all_alerts)
+        # Final local sync
+        try:
+            full_list = load_alerts()
+            for t in triggered_alerts:
+                for a in full_list:
+                    if str(a.get("id")) == str(t.get("id")):
+                        a["triggered"] = True
+                        a["triggered_at"] = t["triggered_at"]
+                        a["trigger_price"] = t["trigger_price"]
+            save_alerts_local(full_list)
+        except:
+            pass
         
     return triggered_alerts
+
 
 
 
