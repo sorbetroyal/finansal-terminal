@@ -801,6 +801,12 @@ st.session_state['all_p_list'] = all_portfolios
 if "selected_p" not in st.session_state:
     saved_selected = load_selected_portfolios()
     st.session_state.selected_p = [p for p in saved_selected if p in all_portfolios] if saved_selected else all_portfolios.copy()
+else:
+    # Crucial: Always filter out deleted portfolios to prevent multiselect errors
+    st.session_state.selected_p = [p for p in st.session_state.selected_p if p in all_portfolios]
+    if not st.session_state.selected_p and all_portfolios:
+        st.session_state.selected_p = all_portfolios.copy()
+
 
 all_holdings = get_all_holdings()
 
