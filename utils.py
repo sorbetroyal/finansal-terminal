@@ -627,7 +627,97 @@ def get_portfolio_metrics(holdings, period="1y"):
 def get_user_id():
     """Get current user's ID from session state."""
     user = st.session_state.get("user")
-    return str(user.id) if user else None
+    if not user:
+        return None
+    # Support both object and dict formats for user
+    if hasattr(user, 'id'):
+        return str(user.id)
+    if isinstance(user, dict) and 'id' in user:
+        return str(user['id'])
+    return None
+
+def migrate_local_to_supabase(json_path="portfolio.json"):
+    """Migrate data from local JSON file to Supabase for the current user."""
+    user_id = get_user_id()
+    if not user_id:
+        return False, "Kullanıcı girişi yapılmamış."
+    
+    if not os.path.exists(json_path):
+        return False, f"Yerel veri dosyası bulunamadı: {json_path}"
+    
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            local_data = json.load(f)
+        
+        if "portfolios" not in local_data:
+            return False, "Geçersiz dosya formatı."
+        
+        success_count = 0
+        for p_name, p_data in local_data["portfolios"].items():
+            # 1. Create portfolio if it doesn't exist
+            # Check if this user already has a portfolio with this name in Supabase
+            existing_p = supabase.table("portfolios").select("id").eq("user_id", user_id).eq("name", p_name).execute()
+            
+            if existing_p.data:
+                p_id = existing_p.data[0]["id"]
+            else:
+                new_p = supabase.table("portfolios").insert({"name": p_name, "user_id": user_id}).execute()
+                if not new_p.data:
+                    continue
+                p_id = new_p.data[0]["id"]
+            
+            # 2. Add holdings
+            for h in p_data.get("holdings", []):
+                # Map old structure to new structure
+                symbol = h.get("symbol")
+                amount = float(h.get("amount", 0))
+                cost = float(h.get("cost", 0))
+                asset_type = h.get("type", "bist hisse") # Default to bist
+                purchase_date = h.get("added_at", datetime.now().strftime("%Y-%m-%d"))
+                if " " in purchase_date: # Handle full datetime strings
+                    purchase_date = purchase_date.split(" ")[0]
+                
+                # Check if already exists to avoid duplicates
+                existing_h = supabase.table("holdings").select("id").eq("portfolio_id", p_id).eq("symbol", symbol).eq("purchase_date", purchase_date).execute()
+                
+                if not existing_h.data:
+                    supabase.table("holdings").insert({
+                        "portfolio_id": p_id,
+                        "symbol": symbol,
+                        "type": asset_type,
+                        "amount": amount,
+                        "cost": cost,
+                        "purchase_date": purchase_date
+                    }).execute()
+                    success_count += 1
+        return True, f"Başarıyla {success_count} varlık Supabase hesabınıza aktarıldı."
+    except Exception as e:
+        return False, f"Göç hatası: {str(e)}"
+
+def claim_orphaned_supabase_data():
+    """Assign all portfolios with NULL user_id to the current logged-in user."""
+    user_id = get_user_id()
+    if not user_id:
+        return False, "Kullanıcı girişi yapılmamış."
+    
+    try:
+        # 1. Find portfolios where user_id is null
+        # Note: In Supabase/PostgREST, we use 'is.null' for filter
+        response = supabase.table("portfolios").select("id").is_("user_id", "null").execute()
+        
+        if not response.data:
+            return False, "Eşleşen sahipsiz veri bulunamadı."
+        
+        ids_to_claim = [p["id"] for p in response.data]
+        
+        # 2. Update these portfolios with current user_id
+        for p_id in ids_to_claim:
+            supabase.table("portfolios").update({"user_id": user_id}).eq("id", p_id).execute()
+            
+        return True, f"Başarıyla {len(ids_to_claim)} portföy hesabınıza tanımlandı."
+        
+    except Exception as e:
+        return False, f"Hata: {str(e)}"
 
 def load_portfolio():
     """Load portfolios for the current user from Supabase."""
@@ -878,21 +968,26 @@ def save_selected_portfolios(selected_list):
 ALERTS_FILE = os.path.join(os.path.dirname(__file__), "alerts.json")
 
 def load_alerts():
-    """Load alerts from Supabase or local file."""
+    """Load alerts for the current user from Supabase or local file."""
+    user_id = get_user_id()
     try:
-        # Check if table exists by trying a select
-        response = supabase.table("alerts").select("*").execute()
-        return response.data
-    except Exception as e:
+        if user_id:
+            try:
+                response = supabase.table("alerts").select("*").eq("user_id", user_id).execute()
+                return response.data
+            except:
+                pass
+        
         # Fallback to local
-        try:
-            if os.path.exists(ALERTS_FILE):
-                with open(ALERTS_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return data if isinstance(data, list) else []
-            return []
-        except:
-            return []
+        if os.path.exists(ALERTS_FILE):
+            with open(ALERTS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        return []
+    except Exception as e:
+        print(f"Error loading alerts: {e}")
+        return []
+
 
 def save_alerts_local(alerts):
     """Save alerts to local file."""
@@ -903,25 +998,35 @@ def save_alerts_local(alerts):
     except:
         return False
 
-def add_alert(symbol, target_price, condition, asset_type=None, initial_price=None):
-    """Add a new price alert."""
+def add_alert(symbol, target_price, condition, asset_type=None, initial_price=None, action_type="STRATEJİ"):
+    """Add a new price alert/strategy."""
+    user_id = get_user_id()
     alert_id = int(datetime.now().timestamp() * 1000)
     alert_data = {
         "id": alert_id,
+        "user_id": user_id,
         "symbol": symbol.upper(),
         "target_price": float(target_price),
         "initial_price": float(initial_price) if initial_price is not None else None,
         "condition": condition, # "Fiyat Üstünde" or "Fiyat Altında"
         "type": asset_type,
+        "action_type": action_type, # "ALIM" or "SATIŞ"
         "created_at": datetime.now().isoformat(),
         "triggered": False
     }
     
     try:
         # Try Supabase first
-        supabase.table("alerts").insert(alert_data).execute()
-        return True
+        if user_id:
+            supabase.table("alerts").insert(alert_data).execute()
+            return True
+        else:
+            # Local fallback
+            alerts = load_alerts()
+            alerts.append(alert_data)
+            return save_alerts_local(alerts)
     except Exception as e:
+        print(f"Error adding alert: {e}")
         # Fallback to local
         try:
             alerts = load_alerts()
@@ -929,6 +1034,8 @@ def add_alert(symbol, target_price, condition, asset_type=None, initial_price=No
             return save_alerts_local(alerts)
         except:
             return False
+
+
 
 def delete_alert(alert_id):
     """Delete an alert."""

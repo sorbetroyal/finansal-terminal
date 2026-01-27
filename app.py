@@ -1,13 +1,14 @@
 from utils import (get_current_data, load_portfolio, add_asset, remove_asset, delete_asset,
                    get_history, create_portfolio, delete_portfolio, save_all_portfolios, get_all_holdings, get_portfolio_history,
                    load_selected_portfolios, save_selected_portfolios, get_portfolio_metrics, fetch_all_prices_parallel,
-                   load_alerts, add_alert, delete_alert, check_alerts)
+                   load_alerts, add_alert, delete_alert, check_alerts, migrate_local_to_supabase, claim_orphaned_supabase_data)
 from auth import init_auth_state, get_current_user, render_auth_page, logout
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
-
+from datetime import datetime, timedelta
+import requests
+import time
 # --- HELPER: CRYPTO FEAR & GREED ---
 @st.cache_data(ttl=3600)
 def get_crypto_fng():
@@ -331,7 +332,36 @@ def portfolio_management_dialog():
     
     st.markdown('<div style="margin: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.1);"></div>', unsafe_allow_html=True)
     
+    # MIGRATION SECTION
+    st.markdown('<p style="color: rgba(255,255,255,0.9); font-size: 1rem; font-weight: 600; margin-bottom: 5px;">📥 Yerel Verileri Aktar</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color: rgba(255,255,255,0.5); font-size: 0.8rem; margin-bottom: 15px;">Supabase öncesi yazdığınız verileri buraya aktarabilirsiniz.</p>', unsafe_allow_html=True)
+    
+    if st.button("📁 portfolio.json'dan Verileri Aktar", use_container_width=True):
+        success, message = migrate_local_to_supabase()
+        if success:
+            st.success(message)
+            st.rerun()
+        else:
+            # Try the backup location if root not found or empty
+            success, message = migrate_local_to_supabase("backups/v1_stable/portfolio.json")
+            if success:
+                st.success(message)
+                st.rerun()
+            else:
+                st.error("Yerel veri bulunamadı.")
+
+    if st.button("🔗 Supabase'deki Sahipsiz Verileri Hesabıma Tanımla", use_container_width=True):
+        success, message = claim_orphaned_supabase_data()
+        if success:
+            st.success(message)
+            st.rerun()
+        else:
+            st.info(message)
+
+    st.markdown('<div style="margin: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.1);"></div>', unsafe_allow_html=True)
+    
     # EXISTING PORTFOLIOS SECTION (compact grid)
+
     st.markdown('<p style="color: rgba(255,255,255,0.9); font-size: 1rem; font-weight: 600; margin-bottom: 10px;">📂 Portföyleriniz</p>', unsafe_allow_html=True)
     
     portfolios_fresh = load_portfolio()
@@ -813,7 +843,7 @@ nav_cols = st.columns([1, 1], gap="large")
 with nav_cols[0]:
     # Interactive Tab Switcher
     tab_cols = st.columns([1, 1, 1, 1], gap="small")
-    tabs = ["PORTFÖYÜM", "ALARM"]
+    tabs = ["PORTFÖYÜM", "STRATEJİLERİM"]
     # Safe Tab Switching Callback
     def change_tab(t):
         st.session_state.active_tab = t
@@ -827,6 +857,7 @@ with nav_cols[0]:
             st.button(tab, key=f"tab_{tab}", on_click=change_tab, args=(tab,), type=btn_type, use_container_width=True)
 
 with nav_cols[1]:
+
     # ACTION BUTTONS
     btn_cols = st.columns([1.2, 1.2, 0.8], gap="small")
     with btn_cols[0]:
@@ -1699,121 +1730,207 @@ if st.session_state.active_tab == "PORTFÖYÜM":
 
 
 
-elif st.session_state.active_tab == "ALARM":
-    st.markdown('<div style="margin-top:0px; margin-bottom:20px; display:flex; align-items:center; gap:10px;"><i class="fas fa-bell" style="color:#00f2ff;"></i><span style="color:white; font-weight:600; font-size:1.2rem;">Fiyat Alarmları</span></div>', unsafe_allow_html=True)
+elif st.session_state.active_tab == "STRATEJİLERİM":
+    st.markdown("""
+        <style>
+            .alert-card {
+                background: rgba(23, 27, 33, 0.6);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 16px;
+                padding: 15px 20px;
+                margin-bottom: 12px;
+                transition: transform 0.2s, border-color 0.2s;
+            }
+            .alert-card:hover {
+                border-color: rgba(0, 242, 255, 0.3);
+                transform: translateY(-2px);
+            }
+            .alert-triggered {
+                border-left: 4px solid #ff3e3e !important;
+                background: linear-gradient(90deg, rgba(255, 62, 62, 0.05) 0%, rgba(23, 27, 33, 0.6) 100%);
+            }
+            .alert-active-alim {
+                border-left: 4px solid #00ff88 !important;
+            }
+            .alert-active-satis {
+                border-left: 4px solid #ffcc00 !important;
+            }
+            .progress-bg {
+                height: 4px;
+                width: 100%;
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 2px;
+                margin-top: 10px;
+                overflow: hidden;
+            }
+            .progress-fill {
+                height: 100%;
+                background: #00f2ff;
+                box-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+            }
+            .progress-fill-alim { background: #00ff88; box-shadow: 0 0 10px rgba(0, 255, 136, 0.5); }
+            .progress-fill-satis { background: #ffcc00; box-shadow: 0 0 10px rgba(255, 204, 0, 0.5); }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div style="margin-top:0px; margin-bottom:25px; display:flex; align-items:center; gap:12px;"><i class="fas fa-chess" style="color:#00f2ff; font-size:1.5rem;"></i><span style="color:white; font-weight:700; font-size:1.4rem; letter-spacing:-0.5px;">Strateji Takip Merkezi</span></div>', unsafe_allow_html=True)
     
-    col_new, col_list = st.columns([1, 2], gap="large")
+    col_new, col_list = st.columns([1.1, 2], gap="large")
     
     with col_new:
-        st.markdown('<p style="color:white; font-weight:600; margin-bottom:10px;">🔔 Yeni Alarm Ekle</p>', unsafe_allow_html=True)
-        with st.form("new_alert_form", clear_on_submit=True):
-            a_type = st.selectbox("Varlık Tipi", ["bist hisse", "abd hisse/etf", "kripto", "döviz", "emtia", "tefas fon"])
-            a_sym = st.text_input("Varlık Sembolü", placeholder="Örn: THYAO, BTC, USD").upper().strip()
-            a_cond = st.selectbox("Koşul", ["Fiyat Üstünde", "Fiyat Altında"])
-            a_target = st.number_input("Hedef Fiyat", min_value=0.0, value=None, placeholder="0.0000", step=0.0001, format="%.4f")
-
+        st.markdown('<div class="glass-card" style="padding:25px; border:1px solid rgba(0, 242, 255, 0.15);">', unsafe_allow_html=True)
+        st.markdown('<p style="color:white; font-weight:700; font-size:1.1rem; margin-bottom:20px; display:flex; align-items:center; gap:8px;">🎯 Yeni Strateji Tanımla</p>', unsafe_allow_html=True)
+        
+        with st.form("new_strategy_form", clear_on_submit=True):
+            a_action = st.radio("🎬 İşlem Tipi", ["ALIM", "SATIŞ"], horizontal=True)
+            a_type = st.selectbox("📊 Varlık Tipi", ["bist hisse", "abd hisse/etf", "kripto", "döviz", "emtia", "tefas fon"])
+            a_sym = st.text_input("🔤 Varlık Sembolü", placeholder="Örn: THYAO, BTC, XAU").upper().strip()
             
-            submit_a = st.form_submit_button("Alarmı Kur", type="primary", use_container_width=True)
+            a_target = st.number_input("💰 Hedef Fiyat", min_value=0.0, value=None, placeholder="0.00", step=0.0001, format="%.4f")
+            
+            st.markdown('<div style="margin-top:15px;"></div>', unsafe_allow_html=True)
+            submit_a = st.form_submit_button("🚀 Stratejiyi Aktifleştir", type="primary", use_container_width=True)
+            
             if submit_a:
-                if a_sym and a_target > 0:
-                    with st.spinner("⏳ Kontrol ediliyor..."):
+                if a_sym and a_target is not None and a_target > 0:
+                    with st.spinner("🔍 Sembol doğrulanıyor..."):
                         valid = get_current_data(a_sym, a_type)
                     if valid:
-                        if add_alert(a_sym, a_target, a_cond, a_type, initial_price=valid['price']):
-                            st.success(f"✅ {a_sym} için alarm kuruldu!")
+                        # Auto-determine condition based on current price vs target
+                        curr_p = valid['price']
+                        if a_target >= curr_p:
+                            a_cond = "Fiyat Üstünde"
+                        else:
+                            a_cond = "Fiyat Altında"
+                            
+                        if add_alert(a_sym, a_target, a_cond, a_type, initial_price=curr_p, action_type=a_action):
+                            st.success(f"✅ {a_sym} {a_action} stratejisi kuruldu! (Hedef: {a_target:,.2f})")
+                            time.sleep(1)
                             st.rerun()
-                        else: st.error("❌ Hata oluştu.")
-                    else: st.error("❌ Geçersiz sembol.")
-                else: st.warning("⚠️ Lütfen sembol ve geçerli bir fiyat girin.")
+                        else: st.error("❌ Veritabanı hatası.")
+                    else: st.error(f"❌ '{a_sym}' bulunamadı.")
+                else: st.warning("⚠️ Lütfen tüm alanları doldurun.")
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col_list:
-        st.markdown('<p style="color:white; font-weight:600; margin-bottom:10px;">📋 Aktif Alarmlar</p>', unsafe_allow_html=True)
         all_alerts = load_alerts()
+        tab_active, tab_history = st.tabs(["📋 Aktif Stratejiler", "🕒 Tamamlananlar"])
         
-        if not all_alerts:
-            st.info("Henüz kurulmuş bir alarm yok.")
-        else:
-            # Sort: active first, then triggered
-            sorted_alerts = sorted(all_alerts, key=lambda x: x.get("triggered", False))
-            
-            for al in sorted_alerts:
-                is_trig = al.get("triggered", False)
-                status_color = "#ff3e3e" if is_trig else "#00ff88"
-                status_text = "TETİKLENDİ" if is_trig else "AKTİF"
-                bg_color = "rgba(255, 62, 62, 0.05)" if is_trig else "rgba(0, 255, 136, 0.05)"
-                border_color = "rgba(255, 62, 62, 0.2)" if is_trig else "rgba(0, 255, 136, 0.2)"
-                
-                with st.container():
-                    c1, c2, c3 = st.columns([3, 2, 0.5])
-                    with c1:
-                        trigger_div = f'<div style="margin-top:5px; color:#ff3e3e; font-size:0.75rem; font-weight:600;">Tetiklenme: {al.get("trigger_price",0)}</div>' if is_trig else ''
-                        
-                        html_c1 = f'''
-                        <div style="background:{bg_color}; border:1px solid {border_color}; padding:10px 15px; border-radius:10px; margin-bottom:10px; height:85px; display:flex; flex-direction:column; justify-content:center;">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
+        active_alerts = [a for a in all_alerts if not a.get("triggered", False)]
+        history_alerts = [a for a in all_alerts if a.get("triggered", False)]
+        
+        with tab_active:
+            if not active_alerts:
+                st.markdown('<div style="padding:40px; text-align:center; color:rgba(255,255,255,0.2); border:1px dashed rgba(255,255,255,0.1); border-radius:16px;">Aktif strateji bulunmuyor.</div>', unsafe_allow_html=True)
+            else:
+                for al in active_alerts:
+                    al_id = al.get('id', al.get('created_at'))
+                    curr = get_current_data(al['symbol'], al.get('type'))
+                    action = al.get("action_type", "STRATEJİ")
+                    
+                    # Progress calculation
+                    initial = al.get('initial_price', 0)
+                    target = al.get('target_price', 1)
+                    current_p = curr['price'] if curr else initial
+                    
+                    if initial > 0 and target != initial:
+                        total_dist = abs(target - initial)
+                        curr_dist = abs(current_p - initial)
+                        progress = min(max((curr_dist / total_dist) * 100, 0), 100)
+                    else:
+                        progress = 0
+                    
+                    curr_fmt = f"{current_p:,.4f}" if curr else "Veri Yok"
+                    dist_pct = (target/current_p - 1) * 100 if current_p > 0 else 0
+                    abs_dist = abs(dist_pct)
+                    
+                    # Logic: Bar reflects the distance (max 10%). 
+                    # If target is ABOVE (> current), bar shrinks towards the RIGHT.
+                    # If target is BELOW (< current), bar shrinks towards the LEFT.
+                    bar_width = min(max(abs_dist * 10, 0), 100) # 1% dist = 10% bar width
+                    
+                    alignment = "flex-end" if dist_pct > 0 else "flex-start"
+                    cls_suffix = "alim" if action == "ALIM" else "satis"
+                    action_emoji = "🟢" if action == "ALIM" else "🟠"
+                    
+                    st.markdown(f"""
+                        <div class="alert-card alert-active-{cls_suffix}">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
                                 <div>
-                                    <span style="color:white; font-weight:700; font-size:1rem;">{al['symbol']}</span>
-                                    <span style="color:rgba(255,255,255,0.4); font-size:0.7rem; margin-left:8px;">{al.get('type','')}</span>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span style="color:white; font-weight:700; font-size:1.1rem;">{action_emoji} {al['symbol']}</span>
+                                        <span style="color:rgba(255,255,255,0.5); font-size:0.75rem; font-weight:700;">{action}</span>
+                                    </div>
+                                    <div style="color:white; font-size:1.1rem; font-weight:800; margin-top:5px;">
+                                        {target:,.4f}
+                                    </div>
                                 </div>
-                                <span style="color:{status_color}; font-size:0.7rem; font-weight:800; letter-spacing:1px;">{status_text}</span>
+                                <div style="text-align:right;">
+                                    <div style="color:rgba(255,255,255,0.4); font-size:0.7rem; font-weight:700; text-transform:uppercase;">GÜNCEL FİYAT</div>
+                                    <div style="color:#00f2ff; font-size:1.1rem; font-weight:800;">{curr_fmt}</div>
+                                    <div style="color:rgba(255,255,255,0.4); font-size:0.75rem; font-weight:600;">%{abs_dist:.2f} Mesafe</div>
+                                </div>
                             </div>
-                            <div style="margin-top:5px; color:rgba(255,255,255,0.7); font-size:0.85rem;">
-                                {al['condition']} <b style="color:white;">{al['target_price']}</b>
+                            <div class="progress-bg" style="display:flex; justify-content:{alignment};">
+                                <div class="progress-fill progress-fill-{cls_suffix}" style="width:{bar_width}%; border-radius:2px;"></div>
                             </div>
-                            {trigger_div}
                         </div>
-                        '''
-                        st.markdown(html_c1, unsafe_allow_html=True)
-                    with c2:
-                        if is_trig:
-                            st.markdown(f'<div style="background:{bg_color}; border:1px solid {border_color}; border-radius:10px; height:85px; display:flex; align-items:center; justify-content:center; font-size:1.5rem;">🔔</div>', unsafe_allow_html=True)
-                        else:
-                            curr = get_current_data(al['symbol'], al.get('type'))
-                            init_price = al.get('initial_price')
-                            
-                            if init_price:
-                                init_diff = (al['target_price'] / init_price - 1) * 100
-                                init_disp = f"%{abs(init_diff):.1f}"
-                            else:
-                                init_disp = "—"
-                                
-                            if curr:
-                                curr_diff = (al['target_price'] / curr['price'] - 1) * 100
-                                curr_disp = f"%{abs(curr_diff):.1f}"
-                                curr_color = "#00f2ff" if abs(curr_diff) < 2 else "rgba(255,255,255,0.7)"
-                            else:
-                                curr_disp = "—"
-                                curr_color = "rgba(255,255,255,0.7)"
+                    """, unsafe_allow_html=True)
 
-                            html_c2 = f'''
-                            <div style="display:flex; gap:15px; background:rgba(255,255,255,0.03); padding:8px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.05); height:85px; align-items:center;">
-                                <div style="flex:1; text-align:center;">
-                                    <div style="font-size:0.65rem; color:rgba(255,255,255,0.4); text-transform:uppercase; margin-bottom:2px;">İLK UZAKLIK</div>
-                                    <div style="font-size:0.9rem; color:rgba(255,255,255,0.7); font-weight:600;">{init_disp}</div>
-                                </div>
-                                <div style="width:1px; background:rgba(255,255,255,0.1); height:30px;"></div>
-                                <div style="flex:1; text-align:center;">
-                                    <div style="font-size:0.65rem; color:rgba(255,255,255,0.4); text-transform:uppercase; margin-bottom:2px;">GÜNCEL</div>
-                                    <div style="font-size:0.9rem; color:{curr_color}; font-weight:700;">{curr_disp}</div>
-                                </div>
-                            </div>
-                            '''
-                            st.markdown(html_c2, unsafe_allow_html=True)
-                    with c3:
-                        st.markdown('<div style="margin-top:22px;"></div>', unsafe_allow_html=True)
-                        if st.button("🗑️", key=f"del_al_{al.get('id', al.get('created_at'))}"):
-                            delete_alert(al.get('id', al.get('created_at')))
+                    
+                    col_del1, col_del2 = st.columns([5, 1])
+                    with col_del2:
+                        if st.button("🗑️ Sil", key=f"del_al_{al_id}", use_container_width=True):
+                            delete_alert(al_id)
                             st.rerun()
 
-    # Periodic Check (at the end of tab)
+        with tab_history:
+            if not history_alerts:
+                st.markdown('<div style="padding:40px; text-align:center; color:rgba(255,255,255,0.2); border:1px dashed rgba(255,255,255,0.1); border-radius:16px;">Tamamlanmış strateji yok.</div>', unsafe_allow_html=True)
+            else:
+                for al in sorted(history_alerts, key=lambda x: x.get('triggered_at', ''), reverse=True):
+                    al_id = al.get('id', al.get('created_at'))
+                    trig_at = al.get('triggered_at', '').split('T')[0] if 'T' in al.get('triggered_at', '') else 'Bilinmiyor'
+                    action = al.get("action_type", "STRATEJİ")
+                    
+                    st.markdown(f"""
+                        <div class="alert-card alert-triggered">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span style="color:rgba(255,255,255,0.6); font-weight:700; font-size:1rem;">✅ {al['symbol']} {action} Hedefi</span>
+                                    </div>
+                                    <div style="color:rgba(255,255,255,0.4); font-size:0.8rem; margin-top:2px;">
+                                        {al['target_price']:,.4f} noktasında tetiklendi.
+                                    </div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="color:#ff3e3e; font-size:1rem; font-weight:800;">🔔 {al.get('trigger_price',0):,.4f}</div>
+                                    <div style="color:rgba(255,255,255,0.3); font-size:0.65rem; font-weight:600;">{trig_at}</div>
+                                </div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col_del1, col_del2 = st.columns([5, 1])
+                    with col_del2:
+                        if st.button("🗑️ Arşivi Sil", key=f"del_h_{al_id}", use_container_width=True):
+                            delete_alert(al_id)
+                            st.rerun()
+
+    # Periodic Check
     if "last_alert_check" not in st.session_state: st.session_state.last_alert_check = 0
-    import time
-    if time.time() - st.session_state.last_alert_check > 60: # Check every 1 minute
+    if time.time() - st.session_state.last_alert_check > 60:
         triggered = check_alerts()
         if triggered:
             for t in triggered:
-                st.toast(f"🔔 ALARM: {t['symbol']} {t['target_price']} seviyesini geçti!", icon="🚨")
+                action = t.get("action_type", "STRATEJİ")
+                st.toast(f"🎯 {action} SİNYALİ: {t['symbol']} hedef fiyata ulaştı!", icon="🚀")
         st.session_state.last_alert_check = time.time()
+
+
 
 # 6. MODALS (Stay at the bottom)
 if st.session_state.show_asset_modal: asset_management_dialog()
