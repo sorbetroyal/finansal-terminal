@@ -7,3 +7,4 @@ borsapy
 python-dotenv
 scipy
 supabase
+google-generativeai

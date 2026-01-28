@@ -10,6 +10,8 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import requests
 import time
+import os
+import google.generativeai as genai
 # --- HELPER: CRYPTO FEAR & GREED ---
 @st.cache_data(ttl=3600)
 def get_crypto_fng():
@@ -25,8 +27,48 @@ def get_crypto_fng():
 
 # ==================== DIALOG FUNCTIONS ====================
 
+@st.dialog("🤖 Yapay Zeka Analizi", width="large")
+def ai_analysis_dialog(portfolio_data):
+    st.markdown("""
+        <style>
+            .ai-loading { color: #00f2ff; font-weight: 600; padding: 20px; text-align: center; }
+            .ai-response { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 20px; border: 1px solid rgba(255,255,255,0.05); color: #e0e0e0; line-height: 1.6; }
+            .ai-response h1, .ai-response h2, .ai-response h3 { color: #00f2ff !important; margin-top: 20px; }
+            .ai-response strong { color: #ffffff; }
+        </style>
+    """, unsafe_allow_html=True)
 
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        st.error("Gemini API Key bulunamadı. Lütfen .env dosyasına GEMINI_API_KEY ekleyin.")
+        return
 
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        with st.spinner("Gemini portföyünüzü analiz ediyor..."):
+            prompt = f"""
+            Sen uzman bir finansal analist ve portföy yöneticisisin. Aşağıda detayları verilen yatırım portföyünü rasyonel verilere, risk yönetimi kurallarına ve güncel piyasa dinamiklerine göre analiz etmen gerekiyor.
+            
+            PORTFÖY VERİLERİ:
+            {portfolio_data}
+            
+            Lütfen aşağıdaki başlıklarla bana kapsamlı bir analiz sun:
+            1. **Risk Analizi:** Portföyün hangi alanlarda savunmasız? (Sektörel yoğunlaşma, varlık tipi dengesizliği vb.)
+            2. **Performans Yorumu:** Kar/Zarar durumu ve varlıkların genel gidişatı hakkında ne düşünüyorsun?
+            3. **Çeşitlendirme Tavsiyesi:** Portföy dengesini iyileştirmek için hangi kategorilerin ağırlığını azaltıp hangilerini artırmalıyım?
+            4. **Stratejik Öneriler:** Mevcut piyasa koşullarında (BIST, ABD, Kripto, Emtia) bu portföy için kritik tavsiyelerin nelerdir?
+            5. **Yatırımcı Notu:** Psikolojik olarak yatırımcıya bir tavsiye ver.
+            
+            Analizi Türkçe, profesyonel ama anlaşılır bir dille yap. Markdown formatını, emojileri ve başlıkları kullan.
+            """
+            
+            response = model.generate_content(prompt)
+            st.markdown(f'<div class="ai-response">{response.text}</div>', unsafe_allow_html=True)
+            
+    except Exception as e:
+        st.error(f"Analiz sırasında bir hata oluştu: {e}")
 
 @st.dialog("Portföy İçeriği", width="large")
 def portfolio_details_dialog(p_name, p_list):
@@ -1121,57 +1163,41 @@ if st.session_state.active_tab == "PORTFÖYÜM":
         )
         st.markdown(risk_html, unsafe_allow_html=True)
 
-        # --- AI INSIGHT CARD (AKILLI ASİSTAN) ---
-        insight_text = ""
-        insight_color = "#ffffff"
-        insight_icon = "🤖"
-        
-        if daily_kz_amount > 0:
-            if total_val_tl > 0 and daily_kz_amount > total_val_tl * 0.015: 
-                insight_text = "Harika bir gün! Portföyünüz piyasadan hızlı yükseliyor. Trend takibi stratejilerini gözden geçirebilirsin."
-                insight_icon = "🚀"
-                insight_color = "#00ff88"
-            else:
-                insight_text = "Yeşil bir gün. Portföyünüz istikrarlı büyüyor. Nakit akışını yönetmeyi unutma."
-                insight_icon = "📈"
-                insight_color = "#00f2ff"
-        else:
-            if total_val_tl > 0 and daily_kz_amount < total_val_tl * -0.015: 
-                insight_text = "Sakin ol. Piyasalar dalgalıdır. Bu düşüş, sağlam varlıklarda bir alım fırsatı olabilir."
-                insight_icon = "🛡️"
-                insight_color = "#ff3e3e"
-            else:
-                insight_text = "Ufak bir geri çekilme. Uzun vadeli hedeflerine odaklan. Panik satışına gerek yok."
-                insight_icon = "👀"
-                insight_color = "#ffcc00"
-        
-        # Add Top Gainer & Loser Context
-        if detailed_list:
-            sorted_list = sorted(detailed_list, key=lambda x: x.get("Günlük (%)", 0))
-            top_loser = sorted_list[0] if sorted_list[0].get("Günlük (%)", 0) < 0 else None
-            top_gainer = sorted_list[-1] if sorted_list[-1].get("Günlük (%)", 0) > 0 else None
-            
-            summary_html = ""
-            if top_gainer:
-                sym = top_gainer['Varlık'].split('(')[0].strip()
-                summary_html += f"<div style='margin-top:4px;'><span style='color:#00ff88; font-weight:700;'>🚀 {sym}: +%{top_gainer['Günlük (%)']:.2f}</span></div>"
-            
-            if top_loser:
-                sym_l = top_loser['Varlık'].split('(')[0].strip()
-                summary_html += f"<div><span style='color:#ff3e3e; font-weight:700;'>🔻 {sym_l}: %{top_loser['Günlük (%)']:.2f}</span></div>"
-                
-            if summary_html:
-                insight_text += f"<div style='font-size:0.75rem; margin-top:5px; border-top:1px solid rgba(255,255,255,0.1); padding-top:5px;'>{summary_html}</div>"
-
+        # --- GEMINI AI ANALYSIS CARD ---
         st.markdown(f"""
-        <div class="glass-card" style="padding:15px; display:flex; gap:15px; align-items:center; border:1px solid {insight_color}40; background: linear-gradient(90deg, {insight_color}10 0%, rgba(0,0,0,0) 100%); margin-bottom:15px;">
-            <div style="font-size:2rem; filter: drop-shadow(0 0 10px {insight_color});">{insight_icon}</div>
-            <div>
-                <div style="font-size:0.7rem; color:{insight_color}; font-weight:700; text-transform:uppercase; margin-bottom:4px; letter-spacing:1px;">GÜNLÜK İÇGÖRÜ</div>
-                <div style="font-size:0.85rem; color:rgba(255,255,255,0.9); line-height:1.4; font-weight:500;">{insight_text}</div>
+            <div class="glass-card" style="padding:20px; border:1px solid #00f2ff40; background: linear-gradient(135deg, rgba(0, 242, 255, 0.05) 0%, rgba(0,0,0,0) 100%); margin-bottom:15px;">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:15px;">
+                    <div style="font-size:1.8rem; filter: drop-shadow(0 0 10px #00f2ff);">🤖</div>
+                    <div>
+                        <div style="font-size:0.85rem; font-weight:800; color:#fff;">Gemini AI Analisti</div>
+                        <div style="font-size:0.7rem; color:rgba(255,255,255,0.5);">Yapay Zeka Portföy Yorumu</div>
+                    </div>
+                </div>
+                <div style="font-size:0.75rem; color:rgba(255,255,255,0.7); margin-bottom:15px; line-height:1.4;">
+                    Portföyünüzün risk dağılımını, performansını ve gelecek stratejisini Google Gemini ile analiz edin.
+                </div>
             </div>
-        </div>
         """, unsafe_allow_html=True)
+        
+        # UI Button for AI Analysis (placed right after or inside a container if possible)
+        # We'll use a standard streamlit button but style it if we can or just use it normally
+        if detailed_list:
+            sorted_detailed_list = sorted(detailed_list, key=lambda x: x.get("Günlük (%)", 0))
+        else:
+            sorted_detailed_list = []
+
+        if st.button("🚀 Derinlemesine Analiz Et", use_container_width=True, key="ai_analiz_btn"):
+            # Prepare data string for Gemini
+            p_data = {
+                "toplam_deger_tl": total_val_tl,
+                "gunluk_kz_tl": daily_kz_amount,
+                "toplam_kz_tl": total_kz_amount,
+                "risk_skoru": risk_val,
+                "kategoriler": [{cat['name']: f"{cat['val']:,.0f} {cat['currency']} (%{cat['val_tl']/total_val_tl*100:.1f} pay)"} for cat in categories if cat['val_tl'] > 0],
+                "en_cok_yukselen": f"{sorted_detailed_list[-1]['Varlık']} (%{sorted_detailed_list[-1]['Günlük (%)']:.1f})" if detailed_list and sorted_detailed_list[-1].get("Günlük (%)", 0) > 0 else "Yok",
+                "en_cok_dusende": f"{sorted_detailed_list[0]['Varlık']} (%{sorted_detailed_list[0]['Günlük (%)']:.1f})" if detailed_list and sorted_detailed_list[0].get("Günlük (%)", 0) < 0 else "Yok"
+            }
+            ai_analysis_dialog(str(p_data))
         
         # --- ISI HARİTASI (EN ÜSTTE) ---
         if detailed_list:
