@@ -28,19 +28,16 @@ def get_crypto_fng():
 
 
 @st.dialog("Portföy İçeriği", width="large")
-
 def portfolio_details_dialog(p_name, p_list):
-    # Local styling kept for table specifics
+    # Local styling for table specifics
     st.markdown("""
         <style>
-            div[role="dialog"] td { color: #FFFFFF !important; }
-            div[role="dialog"] th { color: #FFFFFF !important; font-weight: 900; }
-            .profit-text { color: #00ff88 !important; text-shadow: 0 0 10px rgba(0, 255, 136, 0.5) !important; }
-            .loss-text { color: #ff3333 !important; text-shadow: 0 0 10px rgba(255, 51, 51, 0.5) !important; }
+            div[role="dialog"] th { color: rgba(255,255,255,0.4) !important; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1) !important; }
+            .profit-text { color: #00ff88 !important; }
+            .loss-text { color: #ff3333 !important; }
         </style>
     """, unsafe_allow_html=True)
 
-    
     st.markdown(f"<h3 style='color:#00f2ff !important; font-size:1.3rem; font-weight:700; margin-bottom:20px;'>📂 {p_name} İçeriği</h3>", unsafe_allow_html=True)
     
     if not p_list:
@@ -55,12 +52,12 @@ def portfolio_details_dialog(p_name, p_list):
         d_val = h.get('Günlük (%)', 0)
         d_amt = h.get('Gunluk_KZ', 0)
         
-        # Determine Daily class and sign
-        d_kz_class = "profit-text" if d_val > 0 else ("loss-text" if d_val < 0 else "")
+        # Determine Daily color and sign
+        d_color = "#00ff88" if d_val > 0 else ("#ff3e3e" if d_val < 0 else "#FFFFFF")
         d_sign = "+" if d_val > 0 else ""
         
-        # Determine Total class and sign
-        t_kz_class = "profit-text" if t_val > 0 else ("loss-text" if t_val < 0 else "")
+        # Determine Total color and sign
+        t_color = "#00ff88" if t_val > 0 else ("#ff3e3e" if t_val < 0 else "#FFFFFF")
         t_sign = "+" if t_val > 0 else ""
         
         rows += f"""<tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
@@ -69,13 +66,13 @@ def portfolio_details_dialog(p_name, p_list):
             <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Maliyet', 0):,.2f} {curr}</td>
             <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Güncel', 0):,.2f} {curr}</td>
             <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Deger', 0):,.2f} {curr}</td>
-            <td style="padding:15px; font-weight:700; font-size:0.9rem;" class="{d_kz_class}">
+            <td style="padding:15px; font-weight:700; font-size:0.9rem; color:{d_color} !important;">
                 %{d_val:.2f}<br>
-                <div style="font-size:0.75rem; font-weight:400;">({d_sign}{d_amt:,.2f} {curr})</div>
+                <div style="font-size:0.75rem; font-weight:400; opacity:0.8;">({d_sign}{d_amt:,.2f} {curr})</div>
             </td>
-            <td style="padding:15px; font-weight:700; font-size:0.9rem;" class="{t_kz_class}">
+            <td style="padding:15px; font-weight:700; font-size:0.9rem; color:{t_color} !important;">
                 %{t_val:.1f}<br>
-                <div style="font-size:0.75rem; font-weight:400;">({t_sign}{t_amt:,.0f} {curr})</div>
+                <div style="font-size:0.75rem; font-weight:400; opacity:0.8;">({t_sign}{t_amt:,.0f} {curr})</div>
             </td>
         </tr>"""
 
@@ -84,13 +81,13 @@ def portfolio_details_dialog(p_name, p_list):
         <table style="width:100%; border-collapse:collapse; background-color: transparent;">
             <thead style="background:rgba(255,255,255,0.03);">
                 <tr>
-                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">VARLIK</th>
-                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">ADET</th>
-                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">MALİYET</th>
-                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">GÜNCEL</th>
-                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">DEĞER</th>
-                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">GÜNLÜK K/Z</th>
-                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">TOPLAM K/Z</th>
+                    <th style="padding:15px; text-align:left;">VARLIK</th>
+                    <th style="padding:15px; text-align:left;">ADET</th>
+                    <th style="padding:15px; text-align:left;">MALİYET</th>
+                    <th style="padding:15px; text-align:left;">GÜNCEL</th>
+                    <th style="padding:15px; text-align:left;">DEĞER</th>
+                    <th style="padding:15px; text-align:left;">GÜNLÜK K/Z</th>
+                    <th style="padding:15px; text-align:left;">TOPLAM K/Z</th>
                 </tr>
             </thead>
             <tbody>{rows}</tbody>
