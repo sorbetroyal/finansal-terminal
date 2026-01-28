@@ -138,6 +138,7 @@ def ai_analysis_dialog(portfolio_data):
                 st.error(f"❌ Analiz motoru başlatılamadı.")
                 st.markdown(f'<div style="background:rgba(255,0,0,0.1); padding:10px; border-radius:5px; font-size:0.8rem; color:#ffbaba;">Son Hata Detayı: {last_error}</div>', unsafe_allow_html=True)
                 st.info("💡 Lütfen API anahtarınızın 'Generative AI' yetkisinin açık olduğunu ve doğru girildiğini kontrol edin.")
+                st.session_state.trigger_ai_analysis = False
                 return
                 
             st.markdown(f'<div class="ai-response">{response.text}</div>', unsafe_allow_html=True)
