@@ -29,13 +29,11 @@ def get_crypto_fng():
 
 @st.dialog("Portföy İçeriği", width="large")
 def portfolio_details_dialog(p_name, p_list):
-    # Local styling for table specifics
+    # Local styling for table specifics - removing global td override
     st.markdown("""
         <style>
-            div[role="dialog"] td { color: #FFFFFF !important; }
-            div[role="dialog"] th { color: rgba(255,255,255,0.4) !important; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1) !important; text-align: left; padding: 15px; }
-            .profit-val { color: #00ff88 !important; text-shadow: 0 0 10px rgba(0, 255, 136, 0.4); font-weight: 800 !important; }
-            .loss-val { color: #ff3e3e !important; text-shadow: 0 0 10px rgba(255, 62, 62, 0.4); font-weight: 800 !important; }
+            div[role="dialog"] [data-testid="stMarkdownContainer"] table { border-collapse: collapse; width: 100%; }
+            div[role="dialog"] th { color: rgba(255,255,255,0.4) !important; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1) !important; text-align: left; padding: 15px; font-size: 0.75rem; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -48,31 +46,31 @@ def portfolio_details_dialog(p_name, p_list):
     rows = ""
     for h in p_list:
         curr = h.get("Para", "TL")
-        # Support both Turkish characters and possibly escaped versions
-        t_val = h.get('Toplam (%)', h.get('Toplam (%)', 0))
+        t_val = h.get('Toplam (%)', 0)
         t_amt = h.get('Toplam_KZ', 0)
-        d_val = h.get('Günlük (%)', h.get('Günlük (%)', 0))
+        d_val = h.get('Günlük (%)', 0)
         d_amt = h.get('Gunluk_KZ', 0)
         
-        # Classes
-        d_cls = "profit-val" if d_val > 0 else ("loss-val" if d_val < 0 else "")
-        t_cls = "profit-val" if t_val > 0 else ("loss-val" if t_val < 0 else "")
+        # Colors - using explicit neon colors
+        d_color = "#00ff88" if d_val > 0 else ("#ff3e3e" if d_val < 0 else "#FFFFFF")
+        t_color = "#00ff88" if t_val > 0 else ("#ff3e3e" if t_val < 0 else "#FFFFFF")
+        
         d_sign = "+" if d_val > 0 else ""
         t_sign = "+" if t_val > 0 else ""
         
         rows += f"""<tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
-            <td style="padding:15px; font-weight:600; font-size:0.9rem;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
-            <td style="padding:15px; font-weight:500; font-size:0.9rem;">{h.get('Adet', 0):,.2f}</td>
-            <td style="padding:15px; font-weight:500; font-size:0.9rem;">{h.get('Maliyet', 0):,.2f} {curr}</td>
-            <td style="padding:15px; font-weight:500; font-size:0.9rem;">{h.get('Güncel', 0):,.2f} {curr}</td>
-            <td style="padding:15px; font-weight:500; font-size:0.9rem;">{h.get('Deger', 0):,.2f} {curr}</td>
-            <td style="padding:15px; font-size:0.9rem;" class="{d_cls}">
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:600; font-size:0.9rem;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Adet', 0):,.2f}</td>
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Maliyet', 0):,.2f} {curr}</td>
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Güncel', 0):,.2f} {curr}</td>
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Deger', 0):,.2f} {curr}</td>
+            <td style="padding:15px; font-weight:800; font-size:0.95rem; color:{d_color} !important; text-shadow: 0 0 10px {d_color}40;">
                 %{d_val:.2f}<br>
-                <div style="font-size:0.75rem; font-weight:400; opacity:0.8;">({d_sign}{d_amt:,.2f} {curr})</div>
+                <div style="font-size:0.75rem; font-weight:400; opacity:0.9;">({d_sign}{d_amt:,.2f} {curr})</div>
             </td>
-            <td style="padding:15px; font-size:0.9rem;" class="{t_cls}">
+            <td style="padding:15px; font-weight:800; font-size:0.95rem; color:{t_color} !important; text-shadow: 0 0 10px {t_color}40;">
                 %{t_val:.1f}<br>
-                <div style="font-size:0.75rem; font-weight:400; opacity:0.8;">({t_sign}{t_amt:,.0f} {curr})</div>
+                <div style="font-size:0.75rem; font-weight:400; opacity:0.9;">({t_sign}{t_amt:,.0f} {curr})</div>
             </td>
         </tr>"""
 
