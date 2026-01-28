@@ -1,7 +1,8 @@
 from utils import (get_current_data, load_portfolio, add_asset, remove_asset, delete_asset,
                    get_history, create_portfolio, delete_portfolio, save_all_portfolios, get_all_holdings, get_portfolio_history,
                    load_selected_portfolios, save_selected_portfolios, get_portfolio_metrics, fetch_all_prices_parallel,
-                   load_alerts, add_alert, delete_alert, check_alerts, migrate_local_to_supabase, claim_orphaned_supabase_data)
+                   load_alerts, add_alert, delete_alert, check_alerts, migrate_local_to_supabase, claim_orphaned_supabase_data, 
+                   is_gold_tl_asset, get_asset_details)
 from auth import init_auth_state, get_current_user, render_auth_page, logout
 import streamlit as st
 import pandas as pd
@@ -950,19 +951,7 @@ if st.session_state.active_tab == "PORTFÖYÜM":
     for h in agg_holdings:
         d = get_current_data(h["symbol"], h.get("type"))
         t = h.get("type", "").lower()
-        cat_idx = 0; currency = "TL"
-        if "abd" in t: cat_idx = 1; currency = "USD"
-        elif "tefas" in t or "fon" in t: cat_idx = 2
-        elif "kripto" in t: cat_idx = 3; currency = "USD"
-        elif "döviz" in t: cat_idx = 4
-        elif "emtia" in t: 
-            cat_idx = 5
-            s_up = h["symbol"].upper()
-            gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
-            is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
-            currency = "TL" if is_gold_tl else "USD"
-        elif "eurobond" in t: cat_idx = 6
-        elif "bes" in t or "oks" in t: cat_idx = 7
+        cat_idx, currency, cat_emoji = get_asset_details(h["symbol"], t)
         
         if d:
             p_val_orig = d["price"]*h["amount"]
@@ -991,7 +980,7 @@ if st.session_state.active_tab == "PORTFÖYÜM":
             categories[cat_idx]["val_tl"] += v
                 
             detailed_list.append({
-                "Emoji": categories[cat_idx]["emoji"], "Varlık": h["symbol"], "Portföy": h["p"],
+                "Emoji": cat_emoji, "Varlık": h["symbol"], "Portföy": h["p"],
                 "Adet": h["amount"], "Maliyet": h["cost"], "T_Maliyet": cost_val_orig,
                 "Güncel": d["price"], "Deger": p_val_orig, "Deger_TL": v, 
                 "Gunluk_KZ": p_val_orig - prev_val_orig,
@@ -1563,8 +1552,7 @@ if st.session_state.active_tab == "PORTFÖYÜM":
                 for h in p_holdings_fixed:
                     d = get_current_data(h["symbol"], h.get("type"))
                     if d:
-                        t = h.get("type", "").lower()
-                        currency = "USD" if ("abd" in t or "kripto" in t or ("emtia" in t and h["symbol"].upper() not in ["ALTIN", "GÜMÜŞ"])) else "TL"
+                        cat_idx, currency, cat_emoji = get_asset_details(h["symbol"], h.get("type", ""))
                         rate = usd_rate if currency == "USD" else 1.0
                         exc_val += d["price"] * h["amount"] * rate
                         exc_cost += h["cost"] * h["amount"] * rate
@@ -1621,9 +1609,7 @@ if st.session_state.active_tab == "PORTFÖYÜM":
                             for h in excluded_holdings:
                                 d = get_current_data(h["symbol"], h.get("type"))
                                 if d:
-                                    t = h.get("type", "").lower()
-                                    currency = "USD" if ("abd" in t or "kripto" in t or ("emtia" in t and h["symbol"].upper() not in ["ALTIN", "GÜMÜŞ"])) else "TL"
-                                    cat_emoji = "🔴" if "bist" in t else ("🔵" if "abd" in t else ("🏦" if "tefas" in t or "fon" in t else ("🪙" if "kripto" in t else ("💵" if "döviz" in t else ("👑" if "emtia" in t else ("📉" if "eurobond" in t else ("🐖" if "bes" in t or "oks" in t else "💰")))))))
+                                    cat_idx, currency, cat_emoji = get_asset_details(h["symbol"], h.get("type", ""))
                                     pl.append({
                                         "Emoji": cat_emoji, "Varlık": h["symbol"], "Portföy": p_name,
                                         "Adet": h["amount"], "Maliyet": h["cost"], "T_Maliyet": h["cost"]*h["amount"],

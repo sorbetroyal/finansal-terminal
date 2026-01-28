@@ -18,6 +18,57 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+def is_gold_tl_asset(symbol):
+    """Checks if an asset symbol refers to a gold/silver commodity denominated in TL."""
+    if not symbol: return False
+    s_up = str(symbol).upper()
+    # Support multiple variants and common spelling differences
+    gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "CEYREK", "YARIM", "TAM", "ATA"]
+    return any(sym in s_up for sym in gold_tl_symbols)
+
+def get_asset_details(symbol, asset_type):
+    """Returns (cat_idx, currency, emoji) for a given symbol and asset type."""
+    s_up = str(symbol).upper()
+    t = str(asset_type).lower()
+    
+    # Defaults
+    cat_idx = 0; currency = "TL"; emoji = "🔴" # BIST Defaults
+    
+    if "abd" in t:
+        cat_idx = 1; currency = "USD"; emoji = "🔵"
+    elif "tefas" in t or "fon" in t:
+        cat_idx = 2; currency = "TL"; emoji = "🏦"
+    elif "kripto" in t:
+        cat_idx = 3; currency = "USD"; emoji = "🪙"
+    elif "döviz" in t:
+        cat_idx = 4; currency = "TL"; emoji = "💵"
+    elif "emtia" in t:
+        cat_idx = 5; currency = "USD"; emoji = "👑" # Commodities default to USD (Foreign stocks/options)
+    elif "eurobond" in t:
+        cat_idx = 6; currency = "TL"; emoji = "📉"
+    elif "bes" in t or "oks" in t:
+        cat_idx = 7; currency = "TL"; emoji = "🐖"
+    else:
+        # Check if it's a BIST stock (fallback)
+        if "bist" in t:
+            cat_idx = 0; currency = "TL"; emoji = "🔴"
+        else:
+            cat_idx = 0; currency = "TL"; emoji = "💰"
+
+    # CRITICAL OVERRIDE: Gold/Silver variants are ALWAYS TL denominated and Category 5 (Emtia)
+    if is_gold_tl_asset(s_up):
+        currency = "TL"
+        # If it's BIST Certificate, categorize as BIST (if already BIST) or Emtia
+        if "S1" in s_up or ("ALTIN" in s_up and "bist" in t):
+            if "bist" in t:
+                cat_idx = 0; emoji = "🔴"
+            else:
+                cat_idx = 5; emoji = "👑"
+        else:
+            cat_idx = 5; emoji = "👑"
+            
+    return cat_idx, currency, emoji
+
 # ==================== MARKET DATA FUNCTIONS ====================
 
 # Global cache for prices to speed up app
@@ -202,9 +253,7 @@ def fetch_all_prices_parallel(holdings):
         cache_key = (std_s, t)
         if cache_key not in seen_std:
             seen_std.add(cache_key)
-            gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
-            is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
-            if any(x in t for x in ["tefas", "fon", "bes", "oks"]) or is_gold_tl:
+            if any(x in t for x in ["tefas", "fon", "bes", "oks"]) or is_gold_tl_asset(s_up):
                 pass # Handled by remaining (get_current_data)
             else:
                 yf_tickers.append(cache_key)
@@ -251,8 +300,7 @@ def get_history(symbol, period="1mo", asset_type=None):
         if "kripto" in a_type and "-" not in symbol: symbol = f"{symbol}-USD"
             
         s_up = symbol.upper()
-        gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
-        if any(sym in s_up for sym in gold_tl_symbols):
+        if is_gold_tl_asset(s_up):
             try:
                 # BIST Gold Certificate check
                 if "S1" in s_up or ("ALTIN" in s_up and "bist" in a_type):
@@ -298,9 +346,7 @@ def get_portfolio_history(holdings, period="1mo"):
     for h in holdings:
         s = h["symbol"]; t = str(h.get("type", "")).lower()
         s_up = s.upper()
-        gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
-        is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
-        is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl
+        is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl_asset(s_up)
         if is_usd: has_usd = True
         
         if not any(x in t for x in ["tefas", "fon", "bes", "oks"]):
@@ -348,9 +394,7 @@ def get_portfolio_history(holdings, period="1mo"):
         s = h["symbol"]; t = h.get("type", "").lower()
         p_date = pd.to_datetime(h["purchase_date"]).tz_localize(None).normalize()
         s_up = s.upper()
-        gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
-        is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
-        is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl
+        is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl_asset(s_up)
         
         # Get current data for fallback and today consistency
         cur = get_current_data(s, t)
@@ -504,9 +548,7 @@ def calculate_portfolio_xirr(holdings):
             # Convert USD to TL if needed
             t = h.get("type", "").lower()
             s_up = h["symbol"].upper()
-            gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
-            is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
-            if (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl:
+            if (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl_asset(s_up):
                 usd_data = get_current_data("USDTRY=X", "döviz")
                 rate = usd_data["price"] if usd_data else 34.0
             else:
@@ -644,9 +686,7 @@ def get_portfolio_metrics(holdings, period="1y"):
         current_price = d['price'] if d else cost
         
         s_up = symbol.upper()
-        gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
-        is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
-        is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl
+        is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl_asset(s_up)
         rate = usd_rate if is_usd else 1.0
         
         # Add to TL totals
