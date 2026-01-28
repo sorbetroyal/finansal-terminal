@@ -30,10 +30,10 @@ def _fetch_single_symbol(std_symbol, a_type):
         std_symbol = std_symbol.strip()
         s_upper = std_symbol.upper().replace(".IS", "")
         
-        # 1. Special Handling for BIST Gold Certificate
-        if s_upper in ["ALTIN.S1", "ALTINS1", "ALTIN", "ALTN.S1", "ALTN"]:
+        # 1. Special Handling for BIST Gold Certificate (ALTIN.S1)
+        if s_upper == "ALTIN.S1" or (s_upper == "ALTIN" and "bist" in a_type.lower()):
             try:
-                # In borsapy, the certificate ticker is 'ALTIN'
+                # BIST Gold Certificate lookup
                 t = borsapy.Ticker("ALTIN")
                 info = t.info
                 price = info.get('last', 0)
@@ -42,8 +42,8 @@ def _fetch_single_symbol(std_symbol, a_type):
                 if price > 0:
                     return {"price": price, "prev_close": prev_close, "change_pct": change}
             except:
-                pass # Fallback to calculation below if borsapy fails
-        
+                pass 
+
         # 2. Existing Special Handling/Fetch (Funds etc)
         if any(x in a_type.lower() for x in ["tefas", "fon", "bes", "oks"]):
             try:
@@ -56,8 +56,9 @@ def _fetch_single_symbol(std_symbol, a_type):
             except:
                 return None
         
-        # 3. Last resort calculation logic for ALTIN.S1 if borsapy fails
-        if s_upper == "ALTIN" or s_upper == "ALTIN.S1" or s_upper == "ALTIN.S1.IS" or s_upper in ["ÇEYREK", "YARIM", "TAM", "ATA"]:
+        # 3. Spot Gold / Silver / Gold Variants Calculation logic
+        # Spot Gold (ALTIN) or Retail Gold (ÇEYREK etc.)
+        if s_upper in ["ALTIN", "ÇEYREK", "YARIM", "TAM", "ATA"]:
             ons = get_current_data("GC=F", "ticker")
             usd = get_current_data("USDTRY=X", "döviz")
             if ons and usd:
@@ -67,33 +68,26 @@ def _fetch_single_symbol(std_symbol, a_type):
                 
                 # Multipliers for retail gold (24K equivalents)
                 multiplier = 1.0
-                if s_upper == "ALTIN.S1" or s_upper == "ALTIN.S1.IS": multiplier = 0.01
-                elif s_upper == "ÇEYREK": multiplier = 1.6065
+                if s_upper == "ÇEYREK": multiplier = 1.6065
                 elif s_upper == "YARIM": multiplier = 3.2130
                 elif s_upper == "TAM": multiplier = 6.4260
                 elif s_upper == "ATA": multiplier = 6.6150
                 
                 p = gram_p * multiplier
                 prev = gram_prev * multiplier
-                    
                 return {"price": p, "prev_close": prev, "change_pct": ((p/prev)-1)*100 if prev else 0}
             return None
 
-        if s_upper in ["GÜMÜŞ", "GUMUS", "GUMUS.S1", "GUMUS.S1.IS"]:
+        if s_upper in ["GÜMÜŞ", "GUMUS", "GUMUS.S1"]:
             ons = get_current_data("SI=F", "ticker")
             usd = get_current_data("USDTRY=X", "döviz")
             if ons and usd:
-                # GÜMÜŞ = Gram Silver (Ons / 31.1035 * USD)
-                # GUMUS.S1 = 0.01 Gram Silver (usually, or price-based equivalent)
-                # Note: Certificates are usually 0.01g but price might vary, 
-                # proxying via gram silver is safest
                 p = (ons["price"] / 31.1035) * usd["price"]
                 prev = (ons["prev_close"] / 31.1035) * usd["prev_close"]
                 
                 if "S1" in s_upper:
-                    p = p / 100 # Adjusting based on common certificate unit
+                    p = p / 100 
                     prev = prev / 100
-                    
                 return {"price": p, "prev_close": prev, "change_pct": ((p/prev)-1)*100 if prev else 0}
             return None
 
@@ -253,17 +247,18 @@ def get_history(symbol, period="1mo", asset_type=None):
             elif s_up == "GBP": symbol = "GBPTRY=X"
         if "kripto" in a_type and "-" not in symbol: symbol = f"{symbol}-USD"
             
-        if symbol.upper() in ["ALTIN", "ALTIN.S1", "ALTIN.S1.IS", "ÇEYREK", "YARIM", "TAM", "ATA"]:
+        s_up = symbol.upper()
+        if s_up in ["ALTIN", "ALTIN.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]:
             try:
-                # Try to get history from borsapy first for the certificate
-                if "S1" in symbol.upper():
+                # BIST Gold Certificate check
+                if s_up == "ALTIN.S1" or (s_up == "ALTIN" and "bist" in a_type):
                     t = borsapy.Ticker("ALTIN")
                     df = t.history(period=period)
                     if not df.empty: return df
             except:
                 pass
             
-            # Fallback to gold spot calculation
+            # Gold Spot Calculation (for Emtia or variants)
             gold_ons = get_history("GC=F", period=period)
             usd_try = get_history("USDTRY=X", period=period)
             if not gold_ons.empty and not usd_try.empty:
@@ -271,12 +266,11 @@ def get_history(symbol, period="1mo", asset_type=None):
                 gram_gold = (df["Close_ons"] / 31.1035) * df["Close_usd"]
                 
                 multiplier = 1.0
-                s_up = symbol.upper()
-                if s_up in ["ALTIN.S1", "ALTIN.S1.IS"]: multiplier = 0.01
-                elif s_up == "ÇEYREK": multiplier = 1.6065
+                if s_up == "ÇEYREK": multiplier = 1.6065
                 elif s_up == "YARIM": multiplier = 3.2130
                 elif s_up == "TAM": multiplier = 6.4260
                 elif s_up == "ATA": multiplier = 6.6150
+                # Note: ALTIN.S1 is handled by borsapy above, if fails we don't fallback to spot gram because price is different
                 
                 df["Close"] = gram_gold * multiplier
                 return df
@@ -299,7 +293,9 @@ def get_portfolio_history(holdings, period="1mo"):
     
     for h in holdings:
         s = h["symbol"]; t = str(h.get("type", "")).lower()
-        is_usd = any(x in t for x in ["abd", "kripto"]) or ("emtia" in t and s.upper() not in ["ALTIN", "GÜMÜŞ"])
+        s_up = s.upper()
+        is_gold_tl = s_up in ["ALTIN", "ALTIN.S1", "GÜMÜŞ", "GUMUS", "GUMUS.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl
         if is_usd: has_usd = True
         
         if not any(x in t for x in ["tefas", "fon", "bes", "oks"]):
@@ -346,7 +342,9 @@ def get_portfolio_history(holdings, period="1mo"):
     for h in holdings:
         s = h["symbol"]; t = h.get("type", "").lower()
         p_date = pd.to_datetime(h["purchase_date"]).tz_localize(None).normalize()
-        is_usd = any(x in t for x in ["abd", "kripto"]) or ("emtia" in t and s.upper() not in ["ALTIN", "GÜMÜŞ"])
+        s_up = s.upper()
+        is_gold_tl = s_up in ["ALTIN", "ALTIN.S1", "GÜMÜŞ", "GUMUS", "GUMUS.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl
         
         # Get current data for fallback and today consistency
         cur = get_current_data(s, t)
@@ -499,7 +497,9 @@ def calculate_portfolio_xirr(holdings):
         if d:
             # Convert USD to TL if needed
             t = h.get("type", "").lower()
-            if any(x in t for x in ["abd", "kripto"]) or ("emtia" in t and h["symbol"].upper() not in ["ALTIN", "GÜMÜŞ"]):
+            s_up = h["symbol"].upper()
+            is_gold_tl = s_up in ["ALTIN", "ALTIN.S1", "GÜMÜŞ", "GUMUS", "GUMUS.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]
+            if (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl:
                 usd_data = get_current_data("USDTRY=X", "döviz")
                 rate = usd_data["price"] if usd_data else 34.0
             else:
@@ -636,8 +636,9 @@ def get_portfolio_metrics(holdings, period="1y"):
         d = get_current_data(symbol, h.get('type'))
         current_price = d['price'] if d else cost
         
-        # Determine if this is a USD asset
-        is_usd = any(x in t for x in ["abd", "kripto"]) or ("emtia" in t and symbol.upper() not in ["ALTIN", "GÜMÜŞ"])
+        s_up = symbol.upper()
+        is_gold_tl = s_up in ["ALTIN", "ALTIN.S1", "GÜMÜŞ", "GUMUS", "GUMUS.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl
         rate = usd_rate if is_usd else 1.0
         
         # Add to TL totals
