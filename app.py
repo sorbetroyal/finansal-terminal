@@ -1645,6 +1645,12 @@ if st.session_state.active_tab == "PORTFÖYÜM":
                 d_val = f"%{c['daily']:.1f}"
                 t_val = f"%{c['change']:.1f}"
                 
+                # Calculate amounts
+                d_amt = c['val'] - c['prev']
+                t_amt = c['val'] - c['cost']
+                d_sign = "+" if d_amt > 0 else ""
+                t_sign = "+" if t_amt > 0 else ""
+                
                 d_cls = "text-glow-green" if c["daily"] > 0 else ("text-glow-red" if c["daily"] < 0 else "")
                 t_cls = "text-glow-green" if c["change"] > 0 else ("text-glow-red" if c["change"] < 0 else "")
                 
@@ -1656,9 +1662,9 @@ if st.session_state.active_tab == "PORTFÖYÜM":
                 with c_cols[2]:
                     st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem; font-weight:600;">{v_str}</div>', unsafe_allow_html=True)
                 with c_cols[3]:
-                    st.markdown(f'<div style="line-height:40px; font-size:0.85rem;" class="{d_cls}">{d_val}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem;" class="{d_cls}">{d_val}<br><span style="font-size:0.7rem; opacity:0.6;">{d_sign}{d_amt:,.0f} {c["currency"]}</span></div>', unsafe_allow_html=True)
                 with c_cols[4]:
-                    st.markdown(f'<div style="line-height:40px; font-size:0.85rem;" class="{t_cls}">{t_val}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem;" class="{t_cls}">{t_val}<br><span style="font-size:0.7rem; opacity:0.6;">{t_sign}{t_amt:,.0f} {c["currency"]}</span></div>', unsafe_allow_html=True)
                 with c_cols[5]:
                     if st.button("👁️", key=f"vc_{c['name']}"):
                         # Filter detailed_list by category name logic
