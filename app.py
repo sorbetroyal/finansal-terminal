@@ -36,14 +36,18 @@ def portfolio_details_dialog(p_name, p_list):
             div[role="dialog"] * { opacity: 1.0 !important; }
             
             /* Table Styling */
-            .p-details-table { width: 100%; border-collapse: collapse; background-color: #0b0e14; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); }
-            .p-details-table th { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5) !important; padding: 15px; text-align: left; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-            .p-details-table td { padding: 15px; color: #FFFFFF !important; font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            .p-details-table { width: 100%; border-collapse: collapse; background-color: #0b0e14; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); }
+            .p-details-table th { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6) !important; padding: 15px; text-align: left; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+            .p-details-table td { padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
             
-            /* Neon Profit/Loss */
-            .neon-green-text { color: #00FF00 !important; font-weight: 900 !important; text-shadow: 0 0 8px rgba(0, 255, 0, 0.6) !important; filter: drop-shadow(0 0 2px black); }
-            .neon-red-text { color: #FF0000 !important; font-weight: 900 !important; text-shadow: 0 0 8px rgba(255, 0, 0, 0.6) !important; filter: drop-shadow(0 0 2px black); }
-            .kz-sub { font-size: 0.75rem; font-weight: 400; opacity: 0.9 !important; margin-top: 2px; }
+            /* Explicit White for normal cells */
+            .p-td-white { color: #FFFFFF !important; font-size: 0.9rem; }
+            .p-td-muted { color: rgba(255,255,255,0.7) !important; font-size: 0.9rem; }
+            
+            /* Vibrant Profit/Loss */
+            .val-green { color: #00ff88 !important; font-weight: 800 !important; font-size: 1rem !important; }
+            .val-red { color: #ff3e3e !important; font-weight: 800 !important; font-size: 1rem !important; }
+            .kz-sub { font-size: 0.75rem; font-weight: 400; opacity: 0.8 !important; margin-top: 2px; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -56,25 +60,27 @@ def portfolio_details_dialog(p_name, p_list):
     rows = ""
     for h in p_list:
         curr = h.get("Para", "TL")
-        # Handle decimal rounding for metrics
-        t_val = float(h.get('Toplam (%)', 0))
-        t_amt = float(h.get('Toplam_KZ', 0))
-        d_val = float(h.get('Günlük (%)', 0))
-        d_amt = float(h.get('Gunluk_KZ', 0))
-        
+        try:
+            t_val = float(h.get('Toplam (%)', 0))
+            t_amt = float(h.get('Toplam_KZ', 0))
+            d_val = float(h.get('Günlük (%)', 0))
+            d_amt = float(h.get('Gunluk_KZ', 0))
+        except:
+            t_val = 0; t_amt = 0; d_val = 0; d_amt = 0
+            
         # Determine CSS classes
-        d_cls = "neon-green-text" if d_val > 0 else ("neon-red-text" if d_val < 0 else "")
-        t_cls = "neon-green-text" if t_val > 0 else ("neon-red-text" if t_val < 0 else "")
+        d_cls = "val-green" if d_val > 0 else ("val-red" if d_val < 0 else "p-td-white")
+        t_cls = "val-green" if t_val > 0 else ("val-red" if t_val < 0 else "p-td-white")
         
         d_sign = "+" if d_val > 0 else ""
         t_sign = "+" if t_val > 0 else ""
         
         rows += f"""<tr>
-            <td style="font-weight:700;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
-            <td style="color:rgba(255,255,255,0.7) !important;">{h.get('Adet', 0):,.2f}</td>
-            <td style="color:rgba(255,255,255,0.7) !important;">{h.get('Maliyet', 0):,.2f} {curr}</td>
-            <td>{h.get('Güncel', 0):,.2f} {curr}</td>
-            <td style="font-weight:600;">{h.get('Deger', 0):,.2f} {curr}</td>
+            <td class="p-td-white" style="font-weight:700;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
+            <td class="p-td-muted">{h.get('Adet', 0):,.2f}</td>
+            <td class="p-td-muted">{h.get('Maliyet', 0):,.2f} {curr}</td>
+            <td class="p-td-white">{h.get('Güncel', 0):,.2f} {curr}</td>
+            <td class="p-td-white" style="font-weight:600;">{h.get('Deger', 0):,.2f} {curr}</td>
             <td class="{d_cls}">
                 %{d_val:.2f}<br>
                 <div class="kz-sub">({d_sign}{d_amt:,.2f} {curr})</div>
