@@ -37,21 +37,13 @@ settings.json
 build/
 dist/
 *.exe
-launcher.py
+cleanup_*.py
+init_data.py
+verify_*.py
 
 # Node
 node_modules/
 package-lock.json
-
-# Backup and debug files
-backups/
-*.txt
-!requirements.txt
-debug_*.py
-test_*.py
-cleanup_*.py
-init_data.py
-verify_*.py
 
 # Next.js
 .next/
