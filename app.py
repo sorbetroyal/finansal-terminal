@@ -32,9 +32,10 @@ def portfolio_details_dialog(p_name, p_list):
     # Local styling for table specifics
     st.markdown("""
         <style>
-            div[role="dialog"] th { color: rgba(255,255,255,0.4) !important; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1) !important; }
-            .profit-text { color: #00ff88 !important; }
-            .loss-text { color: #ff3333 !important; }
+            div[role="dialog"] td { color: #FFFFFF !important; }
+            div[role="dialog"] th { color: rgba(255,255,255,0.4) !important; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1) !important; text-align: left; padding: 15px; }
+            .profit-val { color: #00ff88 !important; text-shadow: 0 0 10px rgba(0, 255, 136, 0.4); font-weight: 800 !important; }
+            .loss-val { color: #ff3e3e !important; text-shadow: 0 0 10px rgba(255, 62, 62, 0.4); font-weight: 800 !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -47,47 +48,46 @@ def portfolio_details_dialog(p_name, p_list):
     rows = ""
     for h in p_list:
         curr = h.get("Para", "TL")
-        t_val = h.get('Toplam (%)', 0)
+        # Support both Turkish characters and possibly escaped versions
+        t_val = h.get('Toplam (%)', h.get('Toplam (%)', 0))
         t_amt = h.get('Toplam_KZ', 0)
-        d_val = h.get('Günlük (%)', 0)
+        d_val = h.get('Günlük (%)', h.get('Günlük (%)', 0))
         d_amt = h.get('Gunluk_KZ', 0)
         
-        # Determine Daily color and sign
-        d_color = "#00ff88" if d_val > 0 else ("#ff3e3e" if d_val < 0 else "#FFFFFF")
+        # Classes
+        d_cls = "profit-val" if d_val > 0 else ("loss-val" if d_val < 0 else "")
+        t_cls = "profit-val" if t_val > 0 else ("loss-val" if t_val < 0 else "")
         d_sign = "+" if d_val > 0 else ""
-        
-        # Determine Total color and sign
-        t_color = "#00ff88" if t_val > 0 else ("#ff3e3e" if t_val < 0 else "#FFFFFF")
         t_sign = "+" if t_val > 0 else ""
         
         rows += f"""<tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:600; font-size:0.9rem;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Adet', 0):,.2f}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Maliyet', 0):,.2f} {curr}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Güncel', 0):,.2f} {curr}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Deger', 0):,.2f} {curr}</td>
-            <td style="padding:15px; font-weight:700; font-size:0.9rem; color:{d_color} !important;">
+            <td style="padding:15px; font-weight:600; font-size:0.9rem;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
+            <td style="padding:15px; font-weight:500; font-size:0.9rem;">{h.get('Adet', 0):,.2f}</td>
+            <td style="padding:15px; font-weight:500; font-size:0.9rem;">{h.get('Maliyet', 0):,.2f} {curr}</td>
+            <td style="padding:15px; font-weight:500; font-size:0.9rem;">{h.get('Güncel', 0):,.2f} {curr}</td>
+            <td style="padding:15px; font-weight:500; font-size:0.9rem;">{h.get('Deger', 0):,.2f} {curr}</td>
+            <td style="padding:15px; font-size:0.9rem;" class="{d_cls}">
                 %{d_val:.2f}<br>
                 <div style="font-size:0.75rem; font-weight:400; opacity:0.8;">({d_sign}{d_amt:,.2f} {curr})</div>
             </td>
-            <td style="padding:15px; font-weight:700; font-size:0.9rem; color:{t_color} !important;">
+            <td style="padding:15px; font-size:0.9rem;" class="{t_cls}">
                 %{t_val:.1f}<br>
                 <div style="font-size:0.75rem; font-weight:400; opacity:0.8;">({t_sign}{t_amt:,.0f} {curr})</div>
             </td>
         </tr>"""
 
     st.markdown(f"""
-    <div style="background-color: #0b111a; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden;">
+    <div style="background-color: #0b111a; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; margin-bottom: 20px;">
         <table style="width:100%; border-collapse:collapse; background-color: transparent;">
             <thead style="background:rgba(255,255,255,0.03);">
                 <tr>
-                    <th style="padding:15px; text-align:left;">VARLIK</th>
-                    <th style="padding:15px; text-align:left;">ADET</th>
-                    <th style="padding:15px; text-align:left;">MALİYET</th>
-                    <th style="padding:15px; text-align:left;">GÜNCEL</th>
-                    <th style="padding:15px; text-align:left;">DEĞER</th>
-                    <th style="padding:15px; text-align:left;">GÜNLÜK K/Z</th>
-                    <th style="padding:15px; text-align:left;">TOPLAM K/Z</th>
+                    <th>VARLIK</th>
+                    <th>ADET</th>
+                    <th>MALİYET</th>
+                    <th>GÜNCEL</th>
+                    <th>DEĞER</th>
+                    <th>GÜNLÜK K/Z</th>
+                    <th>TOPLAM K/Z</th>
                 </tr>
             </thead>
             <tbody>{rows}</tbody>
