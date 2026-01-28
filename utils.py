@@ -27,10 +27,11 @@ PRICE_CACHE = {}
 def _fetch_single_symbol(std_symbol, a_type):
     """Cached fallback for fetching single symbol data."""
     try:
+        std_symbol = std_symbol.strip()
         s_upper = std_symbol.upper().replace(".IS", "")
         
         # 1. Special Handling for BIST Gold Certificate
-        if s_upper in ["ALTIN.S1", "ALTINS1", "ALTIN"]:
+        if s_upper in ["ALTIN.S1", "ALTINS1", "ALTIN", "ALTN.S1", "ALTN"]:
             try:
                 # In borsapy, the certificate ticker is 'ALTIN'
                 t = borsapy.Ticker("ALTIN")
@@ -112,7 +113,7 @@ def get_current_data(symbol, asset_type=None):
     s_upper = str(symbol).upper()
     
     # Standardize symbol based on type
-    std_symbol = symbol
+    std_symbol = str(symbol).strip()
     if "bist" in a_type and not std_symbol.endswith(".IS"): std_symbol = f"{std_symbol}.IS"
     if "kripto" in a_type and "-" not in std_symbol: std_symbol = f"{std_symbol}-USD"
     if "döviz" in a_type:

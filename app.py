@@ -198,7 +198,7 @@ def asset_management_dialog():
             asset_type = st.selectbox("📊 Varlık Tipi", [
                 "bist hisse", "abd hisse/etf", "tefas fon", "kripto", "döviz", "emtia", "eurobond", "bes/oks"
             ], key="add_type")
-            asset_symbol = st.text_input("🔤 Varlık Sembolü", key="add_symbol").upper()
+            asset_symbol = st.text_input("🔤 Varlık Sembolü", key="add_symbol").strip().upper()
         
         with col2:
             asset_amount = st.number_input("🔢 Adet", min_value=0.0, value=None, placeholder="1.0", step=0.0001, format="%.4f", key="add_amount")
@@ -209,7 +209,7 @@ def asset_management_dialog():
         
         st.markdown("<div style='margin-top:25px;'></div>", unsafe_allow_html=True)
         if st.button("🚀 Varlık Ekle", type="primary", use_container_width=True):
-            if asset_symbol and asset_amount > 0 and asset_cost > 0:
+            if asset_symbol and asset_amount is not None and asset_cost is not None and asset_amount > 0 and asset_cost > 0:
                 with st.spinner(f"🔍 {asset_symbol} kontrol ediliyor..."):
                     valid_data = get_current_data(asset_symbol, asset_type)
                 
