@@ -27,8 +27,24 @@ PRICE_CACHE = {}
 def _fetch_single_symbol(std_symbol, a_type):
     """Cached fallback for fetching single symbol data."""
     try:
-        # Special Handling/Fetch
-        if any(x in a_type for x in ["tefas", "fon", "bes", "oks"]):
+        s_upper = std_symbol.upper().replace(".IS", "")
+        
+        # 1. Special Handling for BIST Gold Certificate
+        if s_upper in ["ALTIN.S1", "ALTINS1", "ALTIN"]:
+            try:
+                # In borsapy, the certificate ticker is 'ALTIN'
+                t = borsapy.Ticker("ALTIN")
+                info = t.info
+                price = info.get('last', 0)
+                change = info.get('change_percent', 0)
+                prev_close = price / (1 + (change / 100)) if change else price
+                if price > 0:
+                    return {"price": price, "prev_close": prev_close, "change_pct": change}
+            except:
+                pass # Fallback to calculation below if borsapy fails
+        
+        # 2. Existing Special Handling/Fetch (Funds etc)
+        if any(x in a_type.lower() for x in ["tefas", "fon", "bes", "oks"]):
             try:
                 fund = borsapy.Fund(std_symbol)
                 info = fund.info
@@ -39,22 +55,44 @@ def _fetch_single_symbol(std_symbol, a_type):
             except:
                 return None
         
-        s_upper = std_symbol.upper()
-        if s_upper == "ALTIN":
+        # 3. Last resort calculation logic for ALTIN.S1 if borsapy fails
+        if s_upper == "ALTIN" or s_upper == "ALTIN.S1" or s_upper == "ALTIN.S1.IS" or s_upper in ["ÇEYREK", "YARIM", "TAM", "ATA"]:
             ons = get_current_data("GC=F", "ticker")
             usd = get_current_data("USDTRY=X", "döviz")
             if ons and usd:
-                p = (ons["price"] / 31.1035) * usd["price"]
-                prev = (ons["prev_close"] / 31.1035) * usd["prev_close"]
+                # Base: 1 Gram Gold (24K)
+                gram_p = (ons["price"] / 31.1035) * usd["price"]
+                gram_prev = (ons["prev_close"] / 31.1035) * usd["prev_close"]
+                
+                # Multipliers for retail gold (24K equivalents)
+                multiplier = 1.0
+                if s_upper == "ALTIN.S1" or s_upper == "ALTIN.S1.IS": multiplier = 0.01
+                elif s_upper == "ÇEYREK": multiplier = 1.6065
+                elif s_upper == "YARIM": multiplier = 3.2130
+                elif s_upper == "TAM": multiplier = 6.4260
+                elif s_upper == "ATA": multiplier = 6.6150
+                
+                p = gram_p * multiplier
+                prev = gram_prev * multiplier
+                    
                 return {"price": p, "prev_close": prev, "change_pct": ((p/prev)-1)*100 if prev else 0}
             return None
 
-        if s_upper == "GÜMÜŞ":
+        if s_upper in ["GÜMÜŞ", "GUMUS", "GUMUS.S1", "GUMUS.S1.IS"]:
             ons = get_current_data("SI=F", "ticker")
             usd = get_current_data("USDTRY=X", "döviz")
             if ons and usd:
+                # GÜMÜŞ = Gram Silver (Ons / 31.1035 * USD)
+                # GUMUS.S1 = 0.01 Gram Silver (usually, or price-based equivalent)
+                # Note: Certificates are usually 0.01g but price might vary, 
+                # proxying via gram silver is safest
                 p = (ons["price"] / 31.1035) * usd["price"]
                 prev = (ons["prev_close"] / 31.1035) * usd["prev_close"]
+                
+                if "S1" in s_upper:
+                    p = p / 100 # Adjusting based on common certificate unit
+                    prev = prev / 100
+                    
                 return {"price": p, "prev_close": prev, "change_pct": ((p/prev)-1)*100 if prev else 0}
             return None
 
@@ -214,12 +252,32 @@ def get_history(symbol, period="1mo", asset_type=None):
             elif s_up == "GBP": symbol = "GBPTRY=X"
         if "kripto" in a_type and "-" not in symbol: symbol = f"{symbol}-USD"
             
-        if symbol.upper() == "ALTIN":
+        if symbol.upper() in ["ALTIN", "ALTIN.S1", "ALTIN.S1.IS", "ÇEYREK", "YARIM", "TAM", "ATA"]:
+            try:
+                # Try to get history from borsapy first for the certificate
+                if "S1" in symbol.upper():
+                    t = borsapy.Ticker("ALTIN")
+                    df = t.history(period=period)
+                    if not df.empty: return df
+            except:
+                pass
+            
+            # Fallback to gold spot calculation
             gold_ons = get_history("GC=F", period=period)
             usd_try = get_history("USDTRY=X", period=period)
             if not gold_ons.empty and not usd_try.empty:
                 df = gold_ons[["Close"]].join(usd_try[["Close"]], lsuffix='_ons', rsuffix='_usd', how='inner')
-                df["Close"] = (df["Close_ons"] / 31.1035) * df["Close_usd"]
+                gram_gold = (df["Close_ons"] / 31.1035) * df["Close_usd"]
+                
+                multiplier = 1.0
+                s_up = symbol.upper()
+                if s_up in ["ALTIN.S1", "ALTIN.S1.IS"]: multiplier = 0.01
+                elif s_up == "ÇEYREK": multiplier = 1.6065
+                elif s_up == "YARIM": multiplier = 3.2130
+                elif s_up == "TAM": multiplier = 6.4260
+                elif s_up == "ATA": multiplier = 6.6150
+                
+                df["Close"] = gram_gold * multiplier
                 return df
         
         ticker = yf.Ticker(symbol)
