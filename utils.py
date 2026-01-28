@@ -58,7 +58,8 @@ def _fetch_single_symbol(std_symbol, a_type):
         
         # 3. Spot Gold / Silver / Gold Variants Calculation logic
         # Spot Gold (ALTIN) or Retail Gold (ÇEYREK etc.)
-        if s_upper in ["ALTIN", "ÇEYREK", "YARIM", "TAM", "ATA"]:
+        gold_variants = ["ALTIN", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        if any(v in s_upper for v in gold_variants):
             ons = get_current_data("GC=F", "ticker")
             usd = get_current_data("USDTRY=X", "döviz")
             if ons and usd:
@@ -68,10 +69,10 @@ def _fetch_single_symbol(std_symbol, a_type):
                 
                 # Multipliers for retail gold (24K equivalents)
                 multiplier = 1.0
-                if s_upper == "ÇEYREK": multiplier = 1.6065
-                elif s_upper == "YARIM": multiplier = 3.2130
-                elif s_upper == "TAM": multiplier = 6.4260
-                elif s_upper == "ATA": multiplier = 6.6150
+                if "ÇEYREK" in s_upper: multiplier = 1.6065
+                elif "YARIM" in s_upper: multiplier = 3.2130
+                elif "TAM" in s_upper: multiplier = 6.4260
+                elif "ATA" in s_upper: multiplier = 6.6150
                 
                 p = gram_p * multiplier
                 prev = gram_prev * multiplier
@@ -201,8 +202,10 @@ def fetch_all_prices_parallel(holdings):
         cache_key = (std_s, t)
         if cache_key not in seen_std:
             seen_std.add(cache_key)
-            if any(x in t for x in ["tefas", "fon", "bes", "oks"]) or s_up in ["ALTIN", "GÜMÜŞ"]:
-                pass # Handled by remaining
+            gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
+            is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
+            if any(x in t for x in ["tefas", "fon", "bes", "oks"]) or is_gold_tl:
+                pass # Handled by remaining (get_current_data)
             else:
                 yf_tickers.append(cache_key)
     
@@ -248,10 +251,11 @@ def get_history(symbol, period="1mo", asset_type=None):
         if "kripto" in a_type and "-" not in symbol: symbol = f"{symbol}-USD"
             
         s_up = symbol.upper()
-        if s_up in ["ALTIN", "ALTIN.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]:
+        gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        if any(sym in s_up for sym in gold_tl_symbols):
             try:
                 # BIST Gold Certificate check
-                if s_up == "ALTIN.S1" or (s_up == "ALTIN" and "bist" in a_type):
+                if "S1" in s_up or ("ALTIN" in s_up and "bist" in a_type):
                     t = borsapy.Ticker("ALTIN")
                     df = t.history(period=period)
                     if not df.empty: return df
@@ -266,10 +270,10 @@ def get_history(symbol, period="1mo", asset_type=None):
                 gram_gold = (df["Close_ons"] / 31.1035) * df["Close_usd"]
                 
                 multiplier = 1.0
-                if s_up == "ÇEYREK": multiplier = 1.6065
-                elif s_up == "YARIM": multiplier = 3.2130
-                elif s_up == "TAM": multiplier = 6.4260
-                elif s_up == "ATA": multiplier = 6.6150
+                if "ÇEYREK" in s_up: multiplier = 1.6065
+                elif "YARIM" in s_up: multiplier = 3.2130
+                elif "TAM" in s_up: multiplier = 6.4260
+                elif "ATA" in s_up: multiplier = 6.6150
                 # Note: ALTIN.S1 is handled by borsapy above, if fails we don't fallback to spot gram because price is different
                 
                 df["Close"] = gram_gold * multiplier
@@ -294,7 +298,8 @@ def get_portfolio_history(holdings, period="1mo"):
     for h in holdings:
         s = h["symbol"]; t = str(h.get("type", "")).lower()
         s_up = s.upper()
-        is_gold_tl = s_up in ["ALTIN", "ALTIN.S1", "GÜMÜŞ", "GUMUS", "GUMUS.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
         is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl
         if is_usd: has_usd = True
         
@@ -343,7 +348,8 @@ def get_portfolio_history(holdings, period="1mo"):
         s = h["symbol"]; t = h.get("type", "").lower()
         p_date = pd.to_datetime(h["purchase_date"]).tz_localize(None).normalize()
         s_up = s.upper()
-        is_gold_tl = s_up in ["ALTIN", "ALTIN.S1", "GÜMÜŞ", "GUMUS", "GUMUS.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
         is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl
         
         # Get current data for fallback and today consistency
@@ -498,7 +504,8 @@ def calculate_portfolio_xirr(holdings):
             # Convert USD to TL if needed
             t = h.get("type", "").lower()
             s_up = h["symbol"].upper()
-            is_gold_tl = s_up in ["ALTIN", "ALTIN.S1", "GÜMÜŞ", "GUMUS", "GUMUS.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]
+            gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
+            is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
             if (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl:
                 usd_data = get_current_data("USDTRY=X", "döviz")
                 rate = usd_data["price"] if usd_data else 34.0
@@ -637,7 +644,8 @@ def get_portfolio_metrics(holdings, period="1y"):
         current_price = d['price'] if d else cost
         
         s_up = symbol.upper()
-        is_gold_tl = s_up in ["ALTIN", "ALTIN.S1", "GÜMÜŞ", "GUMUS", "GUMUS.S1", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
+        is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
         is_usd = (any(x in t for x in ["abd", "kripto"]) or ("emtia" in t)) and not is_gold_tl
         rate = usd_rate if is_usd else 1.0
         

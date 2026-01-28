@@ -941,7 +941,10 @@ if st.session_state.active_tab == "PORTFÖYÜM":
         elif "döviz" in t: cat_idx = 4
         elif "emtia" in t: 
             cat_idx = 5
-            currency = "TL" if h["symbol"].upper() in ["ALTIN", "GÜMÜŞ"] else "USD"
+            s_up = h["symbol"].upper()
+            gold_tl_symbols = ["ALTIN", "GÜMÜŞ", "GUMUS", "ÇEYREK", "YARIM", "TAM", "ATA"]
+            is_gold_tl = any(sym in s_up for sym in gold_tl_symbols)
+            currency = "TL" if is_gold_tl else "USD"
         elif "eurobond" in t: cat_idx = 6
         elif "bes" in t or "oks" in t: cat_idx = 7
         
