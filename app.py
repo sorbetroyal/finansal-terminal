@@ -52,41 +52,45 @@ def portfolio_details_dialog(p_name, p_list):
         curr = h.get("Para", "TL")
         t_val = h.get('Toplam (%)', 0)
         t_amt = h.get('Toplam_KZ', 0)
+        d_val = h.get('Günlük (%)', 0)
+        d_amt = h.get('Gunluk_KZ', 0)
         
-        # Determine class and sign
-        if t_val > 0:
-            kz_class = "profit-text"
-            sign = "+"
-        elif t_val < 0:
-            kz_class = "loss-text"
-            sign = ""
-        else:
-            kz_class = ""
-            sign = ""
+        # Determine Daily class and sign
+        d_kz_class = "profit-text" if d_val > 0 else ("loss-text" if d_val < 0 else "")
+        d_sign = "+" if d_val > 0 else ""
         
-        rows += f"""<tr style="border-bottom: 1px solid rgba(255,255,255,0.2);">
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:600; font-size:0.95rem;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.95rem;">{h.get('Adet', 0):,.2f}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.95rem;">{h.get('Maliyet', 0):,.2f} {curr}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.95rem;">{h.get('Güncel', 0):,.2f} {curr}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:700; font-size:0.95rem;">{h.get('Deger', 0):,.2f} {curr}</td>
-            <td style="padding:15px; font-weight:800; font-size:1rem;" class="{kz_class}">
+        # Determine Total class and sign
+        t_kz_class = "profit-text" if t_val > 0 else ("loss-text" if t_val < 0 else "")
+        t_sign = "+" if t_val > 0 else ""
+        
+        rows += f"""<tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:600; font-size:0.9rem;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Adet', 0):,.2f}</td>
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Maliyet', 0):,.2f} {curr}</td>
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Güncel', 0):,.2f} {curr}</td>
+            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Deger', 0):,.2f} {curr}</td>
+            <td style="padding:15px; font-weight:700; font-size:0.9rem;" class="{d_kz_class}">
+                %{d_val:.2f}<br>
+                <div style="font-size:0.75rem; font-weight:400;">({d_sign}{d_amt:,.2f} {curr})</div>
+            </td>
+            <td style="padding:15px; font-weight:700; font-size:0.9rem;" class="{t_kz_class}">
                 %{t_val:.1f}<br>
-                <div style="font-size:0.75rem;">({sign}{t_amt:,.0f} {curr})</div>
+                <div style="font-size:0.75rem; font-weight:400;">({t_sign}{t_amt:,.0f} {curr})</div>
             </td>
         </tr>"""
 
     st.markdown(f"""
-    <div style="background-color: #0b111a; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2);">
+    <div style="background-color: #0b111a; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden;">
         <table style="width:100%; border-collapse:collapse; background-color: transparent;">
-            <thead style="background:rgba(255,255,255,0.15);">
+            <thead style="background:rgba(255,255,255,0.03);">
                 <tr>
-                    <th style="padding:15px; color:#FFFFFF !important; font-weight:900; font-size:0.85rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:3px solid #00f2ff;">VARLIK</th>
-                    <th style="padding:15px; color:#FFFFFF !important; font-weight:900; font-size:0.85rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:3px solid #00f2ff;">ADET</th>
-                    <th style="padding:15px; color:#FFFFFF !important; font-weight:900; font-size:0.85rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:3px solid #00f2ff;">MALİYET</th>
-                    <th style="padding:15px; color:#FFFFFF !important; font-weight:900; font-size:0.85rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:3px solid #00f2ff;">GÜNCEL</th>
-                    <th style="padding:15px; color:#FFFFFF !important; font-weight:900; font-size:0.85rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:3px solid #00f2ff;">DEĞER</th>
-                    <th style="padding:15px; color:#FFFFFF !important; font-weight:900; font-size:0.85rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:3px solid #00f2ff;">K/Z %</th>
+                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">VARLIK</th>
+                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">ADET</th>
+                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">MALİYET</th>
+                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">GÜNCEL</th>
+                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">DEĞER</th>
+                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">GÜNLÜK K/Z</th>
+                    <th style="padding:15px; color:rgba(255,255,255,0.4) !important; font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.1);">TOPLAM K/Z</th>
                 </tr>
             </thead>
             <tbody>{rows}</tbody>
