@@ -65,8 +65,11 @@ def ai_analysis_dialog(portfolio_data):
     try:
         genai.configure(api_key=api_key)
         
+        current_date_str = datetime.now().strftime("%d.%m.%Y")
+
         prompt = f"""
         Sen kıdemli bir finansal analist, portföy yöneticisi ve makroekonomistisin.
+        Bugünün Tarihi: {current_date_str}
 
         Yatırımcı Profili:
         Risk Seviyesi: Orta-Yüksek
