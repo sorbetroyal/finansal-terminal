@@ -2,7 +2,7 @@ from utils import (get_current_data, load_portfolio, add_asset, remove_asset, de
                    get_history, create_portfolio, delete_portfolio, save_all_portfolios, get_all_holdings, get_portfolio_history,
                    load_selected_portfolios, save_selected_portfolios, get_portfolio_metrics, fetch_all_prices_parallel,
                    load_alerts, add_alert, delete_alert, check_alerts, migrate_local_to_supabase, claim_orphaned_supabase_data, 
-                   is_gold_tl_asset, get_asset_details)
+                   is_gold_tl_asset, get_asset_details, get_gemini_api_key, save_gemini_api_key)
 from auth import init_auth_state, get_current_user, render_auth_page, logout
 import streamlit as st
 import pandas as pd
@@ -35,36 +35,111 @@ def ai_analysis_dialog(portfolio_data):
             .ai-response { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 20px; border: 1px solid rgba(255,255,255,0.05); color: #e0e0e0; line-height: 1.6; }
             .ai-response h1, .ai-response h2, .ai-response h3 { color: #00f2ff !important; margin-top: 20px; }
             .ai-response strong { color: #ffffff; }
+            .key-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(0,242,255,0.2); border-radius: 8px; padding: 10px; color: white; width: 100%; margin-bottom: 10px; }
         </style>
     """, unsafe_allow_html=True)
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = get_gemini_api_key()
+    
     if not api_key:
-        st.error("Gemini API Key bulunamadı. Lütfen .env dosyasına GEMINI_API_KEY ekleyin.")
+        st.info("💡 Portföy analizi yapabilmek için kendi **Gemini API Key**'inizi girmelisiniz.")
+        st.markdown("""
+            1. [Google AI Studio](https://aistudio.google.com/app/apikey) adresinden ücretsiz anahtarınızı alın.
+            2. Aşağıdaki alana yapıştırıp kaydedin. Anahtarınız güvenli bir şekilde Supabase üzerinde saklanacaktır.
+        """)
+        new_key = st.text_input("Gemini API Key", type="password", placeholder="AIzaSy...")
+        if st.button("Anahtarı Kaydet ve Devam Et"):
+            if new_key:
+                success, error_or_msg = save_gemini_api_key(new_key)
+                if success:
+                    st.success("API Anahtarı başarıyla kaydedildi!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(f"⚠️ Hata: {error_or_msg}")
+                    st.info("İpucu: Eğer 'relation does not exist' hatası alıyorsanız, Supabase SQL Editor üzerinden tabloyu oluşturmalısınız.")
+            else:
+                st.warning("Lütfen bir anahtar girin.")
         return
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
         
+        prompt = f"""
+        Sen kıdemli bir finansal analist, portföy yöneticisi ve makroekonomistisin.
+
+        Yatırımcı Profili:
+        Risk Seviyesi: Orta-Yüksek
+        Vade: Orta Uzun Vadeli
+        Kıyaslama (Benchmark): Portföy performansını mutlaka Türkiye’deki güncel USD kuru ile kıyasla.
+
+        Veri Seti: {portfolio_data} 
+        (Not: Bu veri; maliyetler, güncel fiyatlar, son gün/hafta/ay kapanış verilerini ve fonların içindeki mikro varlık dağılımını (fon_icerikleri_ozeti) içermektedir.)
+
+        Analiz Gereksinimleri:
+        1. **Zamana Yayılmış Performans Analizi:** Son gün, son hafta ve son ay bazında portföyün nasıl bir trend izlediğini yorumla. 
+        Toplam kâr/zarar durumunu, Türkiye enflasyonu karşısındaki reel kaybı veya kazancı net bir şekilde belirt.
+
+        2. **Risk ve Volatilite Analizi:** Orta-yüksek risk profilime göre portföyün "stres testini" yap. Bütün varlıkları incele ve değerlendir.
+        Sektörel yoğunlaşma (örn: sadece havacılık veya sadece banka) olup olmadığını denetle. 
+        Portföydeki fon ve oks/bes fonlarının içindeki varlık dağılımını tabloya dök. Buna göre toplam BIST, ABD EFT/Hisse, altın/gümüş vb. oranları sun. 
+        **Portföydeki fonların ve oks/bes fonlarının (fon_icerikleri_ozeti) içindeki varlık dağılımına bakarak, dolaylı yoldan artan riskleri (örn: fon içindeki aşırı hisse yoğunluğu) de dikkate al.** 
+        Güncel trendlere göre riskleri sun.
+
+        3. **Makroekonomik Bağlam:** Mevcut piyasa koşullarını (Merkez Bankası kararları, küresel faiz beklentileri ve jeopolitik durumlar) portföydeki varlıklarla ilişkilendirerek analiz et.
+
+        4. **Stratejik Re-balans ve Somut Varlık Önerileri:** Performansı düşük olan veya risk dengesini bozan "zayıf halkaları" belirle. 
+        **Önerilerini sadece genel kategorilerle sınırlama; doğrudan VARLIK İSİMLERİ (Örn: THYAO, GARAN, BTC, IPB Fonu vb.) vererek somut tavsiyelerde bulun.**
+        Hangi varlıkta pozisyon azaltılmalı, hangisinde artırılmalı veya portföye yeni hangi spesifik varlıklar eklenebilir? Nedenleri ile açıkla.
+
+        5. **Yatırımcı Disiplini (Notu):** Psikolojik olarak mevcut oynaklığı nasıl yönetmem gerektiğine dair kısa, etkili bir not ekle.
+
+        Format: Analizi profesyonel bir dil ile, Markdown formatında, tablolar ve vurucu başlıklar kullanarak Türkçe sun.
+        """
+
         with st.spinner("Gemini portföyünüzü analiz ediyor..."):
-            prompt = f"""
-            Sen uzman bir finansal analist ve portföy yöneticisisin. Aşağıda detayları verilen yatırım portföyünü rasyonel verilere, risk yönetimi kurallarına ve güncel piyasa dinamiklerine göre analiz etmen gerekiyor.
+            # Attempt to use the latest Flash models (Note: 3.0 is not yet released, using 2.0 Flash as the current state-of-the-art)
+            selected_model = None
+            response = None
+            last_error = ""
+            # Priority list (bare names)
+            priority_models = ['gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
             
-            PORTFÖY VERİLERİ:
-            {portfolio_data}
+            for model_name in priority_models:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    # Try a small test call if list_models is restricted
+                    response = model.generate_content(prompt)
+                    if response:
+                        selected_model = model_name
+                        break
+                except Exception as e:
+                    last_error = f"{model_name}: {str(e)}"
+                    if "API_KEY_INVALID" in last_error or "400" in last_error:
+                        break
+                    continue
             
-            Lütfen aşağıdaki başlıklarla bana kapsamlı bir analiz sun:
-            1. **Risk Analizi:** Portföyün hangi alanlarda savunmasız? (Sektörel yoğunlaşma, varlık tipi dengesizliği vb.)
-            2. **Performans Yorumu:** Kar/Zarar durumu ve varlıkların genel gidişatı hakkında ne düşünüyorsun?
-            3. **Çeşitlendirme Tavsiyesi:** Portföy dengesini iyileştirmek için hangi kategorilerin ağırlığını azaltıp hangilerini artırmalıyım?
-            4. **Stratejik Öneriler:** Mevcut piyasa koşullarında (BIST, ABD, Kripto, Emtia) bu portföy için kritik tavsiyelerin nelerdir?
-            5. **Yatırımcı Notu:** Psikolojik olarak yatırımcıya bir tavsiye ver.
-            
-            Analizi Türkçe, profesyonel ama anlaşılır bir dille yap. Markdown formatını, emojileri ve başlıkları kullan.
-            """
-            
-            response = model.generate_content(prompt)
+            # If priority fails, try to DISCOVER available models for this specific key
+            if not response:
+                try:
+                    available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    for m_name in available:
+                        if m_name not in priority_models: # Don't retry failures
+                            try:
+                                model = genai.GenerativeModel(m_name)
+                                response = model.generate_content(prompt)
+                                if response:
+                                    selected_model = m_name
+                                    break
+                            except: continue
+                except: pass
+
+            if not response:
+                st.error(f"❌ Analiz motoru başlatılamadı.")
+                st.markdown(f'<div style="background:rgba(255,0,0,0.1); padding:10px; border-radius:5px; font-size:0.8rem; color:#ffbaba;">Son Hata Detayı: {last_error}</div>', unsafe_allow_html=True)
+                st.info("💡 Lütfen API anahtarınızın 'Generative AI' yetkisinin açık olduğunu ve doğru girildiğini kontrol edin.")
+                return
+                
             st.markdown(f'<div class="ai-response">{response.text}</div>', unsafe_allow_html=True)
             
     except Exception as e:
@@ -906,13 +981,15 @@ if not ticker_data_html:
 nav_cols = st.columns([1, 1], gap="large")
 with nav_cols[0]:
     # Interactive Tab Switcher
-    tab_cols = st.columns([1, 1, 1, 1], gap="small")
-    tabs = ["PORTFÖYÜM", "STRATEJİLERİM"]
+    tab_cols = st.columns([1, 1, 1.2], gap="small")
+    tabs = ["PORTFÖYÜM", "STRATEJİLERİM", "PORTFÖY ANALİZİ"]
     # Safe Tab Switching Callback
     def change_tab(t):
         st.session_state.active_tab = t
         st.session_state.show_asset_modal = False
         st.session_state.show_portfolio_modal = False
+        if t == "PORTFÖY ANALİZİ":
+            st.session_state.trigger_ai_analysis = True
 
     for i, tab in enumerate(tabs):
         with tab_cols[i]:
@@ -966,8 +1043,8 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# 4. TAB CONTROLLER
-if st.session_state.active_tab == "PORTFÖYÜM":
+# 4. DATA CONTROLLER
+if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
     agg_holdings = [h for h in all_holdings if h["p"] in st.session_state.selected_p] if all_holdings else []
 
     categories = [
@@ -1094,683 +1171,747 @@ if st.session_state.active_tab == "PORTFÖYÜM":
         daily_usd_pct = ((1 + avg_daily/100) / (1 + usd_daily_change_pct/100) - 1) * 100
     d_usd_sign = "+" if daily_usd_pct >= 0 else ""
 
+    if detailed_list:
+        sorted_detailed_list = sorted(detailed_list, key=lambda x: x.get("Günlük (%)", 0))
+    else:
+        sorted_detailed_list = []
 
-    cols = st.columns([1, 2], gap="medium")
 
-    with cols[0]:
-        # --- RISK ANALYSIS MODULE (MOVED TO TOP) ---
-        risk_map = {
-            "kripto": 9.0, "crypto": 9.0, "coin": 9.0,
-            "bist hisse": 7.0, "hisse": 7.0, "stock": 7.0, "bist": 7.0,
-            "abd hisse/etf": 6.5, "abd hisse": 6.5, "etf": 6.0,
-            "tefas fon": 5.0, "fon": 5.0, "tefas": 5.0,
-            "emtia": 3.0, "altın": 3.0, "altin": 3.0, "gold": 3.0, "gümüş": 3.5, "silver": 3.5,
-            "döviz": 2.0, "usd": 2.0, "eur": 2.0, "forex": 8.0,
-            "nakit": 1.0, "cash": 1.0, "tl": 1.0
-        }
+    # --- RISK ANALYSIS CALCULATION (SHARED) ---
+    risk_map = {
+        "kripto": 9.0, "crypto": 9.0, "coin": 9.0,
+        "bist hisse": 7.0, "hisse": 7.0, "stock": 7.0, "bist": 7.0,
+        "abd hisse/etf": 6.5, "abd hisse": 6.5, "etf": 6.0,
+        "tefas fon": 5.0, "fon": 5.0, "tefas": 5.0,
+        "emtia": 3.0, "altın": 3.0, "altin": 3.0, "gold": 3.0, "gümüş": 3.5, "silver": 3.5,
+        "döviz": 2.0, "usd": 2.0, "eur": 2.0, "forex": 8.0,
+        "nakit": 1.0, "cash": 1.0, "tl": 1.0
+    }
+    
+    total_risk_score = 0
+    total_val_calc = 0
+    
+    if agg_holdings:
+        for h in agg_holdings:
+            val = h.get("val_tl", 0)
+            if val > 0:
+                rtype = str(h.get("type", "")).lower().strip()
+                rscore = 6.0 
+                for k, v in risk_map.items():
+                    if k in rtype:
+                        rscore = v
+                        break
+                total_risk_score += val * rscore
+                total_val_calc += val
         
-        total_risk_score = 0
-        total_val_calc = 0
-        
-        if agg_holdings:
-            for h in agg_holdings:
-                val = h.get("val_tl", 0)
-                if val > 0:
-                    rtype = str(h.get("type", "")).lower().strip()
-                    rscore = 6.0 
-                    for k, v in risk_map.items():
-                        if k in rtype:
-                            rscore = v
-                            break
-                    total_risk_score += val * rscore
-                    total_val_calc += val
-            
-            risk_val = (total_risk_score / total_val_calc) if total_val_calc > 0 else 0
-        else:
-            risk_val = 0
-            
-        risk_percent = min(max((risk_val / 10.0) * 100, 0), 100)
-        
-        if risk_val < 3.5:
-            r_label = "DÜŞÜK RİSK"
-            r_color = "#00ff88"
-            r_desc = "Defansif ve güvenli liman ağırlıklı."
-        elif risk_val < 7.0:
-            r_label = "ORTA RİSK"
-            r_color = "#ffcc00"
-            r_desc = "Dengeli büyüme ve çeşitlilik."
-        else:
-            r_label = "YÜKSEK RİSK"
-            r_color = "#ff3e3e"
-            r_desc = "Yüksek getiri potansiyeli, yüksek volatilite."
+        risk_val = (total_risk_score / total_val_calc) if total_val_calc > 0 else 0
+    else:
+        risk_val = 0
 
-        risk_html = (
-            f'<div class="glass-card" style="padding:20px; margin-bottom:15px; border:1px solid rgba(255,255,255,0.05); background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0) 100%);">'
-            f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
-            f'<div style="font-size:0.75rem; font-weight:800; color:rgba(255,255,255,0.5); letter-spacing:1px;">RİSK PROFİLİ</div>'
-            f'<div style="font-size:0.85rem; font-weight:800; color:{r_color}; text-shadow:0 0 10px {r_color}40;">{r_label} ({risk_val:.1f}/10)</div>'
-            f'</div>'
-            
-            f'<div style="height:6px; width:100%; background:rgba(255,255,255,0.1); border-radius:3px; position:relative; margin-bottom:8px;">'
-            f'<div style="height:100%; width:100%; background:linear-gradient(90deg, #00ff88 0%, #ffcc00 50%, #ff3e3e 100%); border-radius:3px; opacity:0.8;"></div>'
-            f'<div style="position:absolute; left:{risk_percent}%; top:50%; transform:translate(-50%, -50%); width:14px; height:14px; background:#fff; border:3px solid #0b0e14; border-radius:50%; box-shadow:0 0 10px rgba(255,255,255,0.8);"></div>'
-            f'</div>'
-            
-            f'<div style="font-size:0.75rem; color:rgba(255,255,255,0.4); text-align:right;">'
-            f'{r_desc}'
-            f'</div>'
-            f'</div>'
-        )
-        st.markdown(risk_html, unsafe_allow_html=True)
+    if st.session_state.active_tab == "PORTFÖYÜM":
+        cols = st.columns([1, 2], gap="medium")
 
-        # --- GEMINI AI ANALYSIS CARD ---
-        st.markdown(f"""
-            <div class="glass-card" style="padding:20px; border:1px solid #00f2ff40; background: linear-gradient(135deg, rgba(0, 242, 255, 0.05) 0%, rgba(0,0,0,0) 100%); margin-bottom:15px;">
-                <div style="display:flex; align-items:center; gap:12px; margin-bottom:15px;">
-                    <div style="font-size:1.8rem; filter: drop-shadow(0 0 10px #00f2ff);">🤖</div>
-                    <div>
-                        <div style="font-size:0.85rem; font-weight:800; color:#fff;">Gemini AI Analisti</div>
-                        <div style="font-size:0.7rem; color:rgba(255,255,255,0.5);">Yapay Zeka Portföy Yorumu</div>
+        with cols[0]:
+            # --- RISK ANALYSIS MODULE DISPLAY ---
+            risk_percent = min(max((risk_val / 10.0) * 100, 0), 100)
+            
+            if risk_val < 3.5:
+                r_label = "DÜŞÜK RİSK"
+                r_color = "#00ff88"
+                r_desc = "Defansif ve güvenli liman ağırlıklı."
+            elif risk_val < 7.0:
+                r_label = "ORTA RİSK"
+                r_color = "#ffcc00"
+                r_desc = "Dengeli büyüme ve çeşitlilik."
+            else:
+                r_label = "YÜKSEK RİSK"
+                r_color = "#ff3e3e"
+                r_desc = "Yüksek getiri potansiyeli, yüksek volatilite."
+    
+            risk_html = (
+                f'<div class="glass-card" style="padding:20px; margin-bottom:15px; border:1px solid rgba(255,255,255,0.05); background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0) 100%);">'
+                f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">'
+                f'<div style="font-size:0.75rem; font-weight:800; color:rgba(255,255,255,0.5); letter-spacing:1px;">RİSK PROFİLİ</div>'
+                f'<div style="font-size:0.85rem; font-weight:800; color:{r_color}; text-shadow:0 0 10px {r_color}40;">{r_label} ({risk_val:.1f}/10)</div>'
+                f'</div>'
+                
+                f'<div style="height:6px; width:100%; background:rgba(255,255,255,0.1); border-radius:3px; position:relative; margin-bottom:8px;">'
+                f'<div style="height:100%; width:100%; background:linear-gradient(90deg, #00ff88 0%, #ffcc00 50%, #ff3e3e 100%); border-radius:3px; opacity:0.8;"></div>'
+                f'<div style="position:absolute; left:{risk_percent}%; top:50%; transform:translate(-50%, -50%); width:14px; height:14px; background:#fff; border:3px solid #0b0e14; border-radius:50%; box-shadow:0 0 10px rgba(255,255,255,0.8);"></div>'
+                f'</div>'
+                
+                f'<div style="font-size:0.75rem; color:rgba(255,255,255,0.4); text-align:right;">'
+                f'{r_desc}'
+                f'</div>'
+                f'</div>'
+            )
+            st.markdown(risk_html, unsafe_allow_html=True)
+    
+            
+            # --- ISI HARİTASI (EN ÜSTTE) ---
+            if detailed_list:
+                df_heat = pd.DataFrame(detailed_list)
+                # BAŞLIK KALDIRILDI
+                
+                fig_heat = px.treemap(
+                    df_heat,
+                    path=[px.Constant("TÜM VARLIKLAR"), 'Emoji', 'Varlık'],
+                    values='Deger_TL',
+                    color='Günlük (%)',
+                    color_continuous_scale=[[0, '#ff3e3e'], [0.5, '#171b21'], [1, '#00ff88']],
+                    color_continuous_midpoint=0,
+                    custom_data=['Varlık', 'Deger_TL', 'Günlük (%)']
+                )
+                
+                # ADIM 3: TAMAMEN SESSİZ MOD - Sadece İsim ve Renk
+                fig_heat.update_traces(
+                    hoverinfo='none', # Hiçbir şey gösterme
+                    hovertemplate=None,
+                    texttemplate="<b>%{label}</b>", # Sadece İsim
+                    textposition="middle center",
+                    textfont=dict(size=14, color="white", family="Outfit"),
+                    marker=dict(line=dict(width=1, color='rgba(0,0,0,0.5)'))
+                )
+                
+                fig_heat.update_layout(
+                    margin=dict(t=30, l=0, r=0, b=0),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    height=380,
+                    coloraxis_showscale=False
+                )
+                
+                st.markdown('<div class="glass-card" style="padding:5px; overflow:hidden;">', unsafe_allow_html=True)
+                st.plotly_chart(
+                    fig_heat, 
+                    use_container_width=True, 
+                    config={'displayModeBar': False},
+                    key="razor_heat_hover_mode" 
+                )
+                
+                # --- YATAY RENK SKALASI (LEGEND BAR) ---
+                st.markdown("""
+                <div style="margin-top: 10px; margin-bottom: 5px; padding: 0 5px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: rgba(255,255,255,0.5); font-weight: 500; font-family: 'Outfit', sans-serif;">
+                        <span>DÜŞÜŞ</span>
+                        <span>NÖTR</span>
+                        <span>YÜKSELİŞ</span>
                     </div>
+                    <div style="
+                        height: 4px;
+                        width: 100%;
+                        border-radius: 2px;
+                        margin-top: 4px;
+                        background: linear-gradient(90deg, #ff3e3e 0%, #171b21 50%, #00ff88 100%);
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+                    "></div>
                 </div>
-                <div style="font-size:0.75rem; color:rgba(255,255,255,0.7); margin-bottom:15px; line-height:1.4;">
-                    Portföyünüzün risk dağılımını, performansını ve gelecek stratejisini Google Gemini ile analiz edin.
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # UI Button for AI Analysis (placed right after or inside a container if possible)
-        # We'll use a standard streamlit button but style it if we can or just use it normally
-        if detailed_list:
-            sorted_detailed_list = sorted(detailed_list, key=lambda x: x.get("Günlük (%)", 0))
-        else:
-            sorted_detailed_list = []
-
-        if st.button("🚀 Derinlemesine Analiz Et", use_container_width=True, key="ai_analiz_btn"):
-            # Prepare data string for Gemini
-            p_data = {
-                "toplam_deger_tl": total_val_tl,
-                "gunluk_kz_tl": daily_kz_amount,
-                "toplam_kz_tl": total_kz_amount,
-                "risk_skoru": risk_val,
-                "kategoriler": [{cat['name']: f"{cat['val']:,.0f} {cat['currency']} (%{cat['val_tl']/total_val_tl*100:.1f} pay)"} for cat in categories if cat['val_tl'] > 0],
-                "en_cok_yukselen": f"{sorted_detailed_list[-1]['Varlık']} (%{sorted_detailed_list[-1]['Günlük (%)']:.1f})" if detailed_list and sorted_detailed_list[-1].get("Günlük (%)", 0) > 0 else "Yok",
-                "en_cok_dusende": f"{sorted_detailed_list[0]['Varlık']} (%{sorted_detailed_list[0]['Günlük (%)']:.1f})" if detailed_list and sorted_detailed_list[0].get("Günlük (%)", 0) < 0 else "Yok"
-            }
-            ai_analysis_dialog(str(p_data))
-        
-        # --- ISI HARİTASI (EN ÜSTTE) ---
-        if detailed_list:
-            df_heat = pd.DataFrame(detailed_list)
+                """, unsafe_allow_html=True)
+                
+                st.markdown('</div><div style="margin-bottom: 20px;"></div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="glass-card" style="padding:40px; text-align:center; color:rgba(255,255,255,0.2);">Veri bulunmamaktadır.</div>', unsafe_allow_html=True)
+    
+            # --- PASTA GRAFİK (ALTTA) ---
+            pie_data = [{"Kategori": f"{c['emoji']} {c['name']}", "Değer": c["val_tl"]} for c in categories if c["val_tl"] > 0]
+            if pie_data:
+                df_pie = pd.DataFrame(pie_data)
+                fig_pie = px.pie(df_pie, values='Değer', names='Kategori', hole=0.6,
+                                color_discrete_sequence=['#00f2ff', '#00ff88', '#7000ff', '#ff0070', '#ffcc00', '#0070ff', '#ff3e3e', '#ffffff'])
+                fig_pie.update_traces(
+                    textinfo='none', # Pastada yüzdeleri kaldır
+                    pull=[0.02] * len(df_pie),
+                    hovertemplate="<b>%{label}</b><br>₺%{value:,.0f} (%{percent})<extra></extra>"
+                )
+                fig_pie.update_layout(
+                    showlegend=True, 
+                    legend=dict(
+                        orientation="h", # Açıklamalar alt satırda (yatay)
+                        yanchor="top", 
+                        y=-0.1, 
+                        xanchor="center", 
+                        x=0.5, 
+                        font=dict(color="white", size=8),
+                        bgcolor='rgba(0,0,0,0)',
+                        itemsizing='constant'
+                    ),
+                    margin=dict(t=10, b=80, l=10, r=10), # Alt marjı legend için artır
+                    paper_bgcolor='rgba(0,0,0,0)', 
+                    height=380 # Legend aşağı indiği için yüksekliği biraz artır
+                )
+                st.markdown('<div class="glass-card p-6">', unsafe_allow_html=True)
+                st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False})
+                st.markdown('</div>', unsafe_allow_html=True)
+    
+            if "chart_period" not in st.session_state:
+                st.session_state.chart_period = "5d"
+            
             # BAŞLIK KALDIRILDI
             
-            fig_heat = px.treemap(
-                df_heat,
-                path=[px.Constant("TÜM VARLIKLAR"), 'Emoji', 'Varlık'],
-                values='Deger_TL',
-                color='Günlük (%)',
-                color_continuous_scale=[[0, '#ff3e3e'], [0.5, '#171b21'], [1, '#00ff88']],
-                color_continuous_midpoint=0,
-                custom_data=['Varlık', 'Deger_TL', 'Günlük (%)']
-            )
+            period_options = {"1 Hafta": "5d", "1 Ay": "1mo", "3 Ay": "3mo", "6 Ay": "6mo", "1 Yıl": "1y"}
+            period_labels = list(period_options.keys())
+            current_label = [k for k, v in period_options.items() if v == st.session_state.chart_period]
+            current_idx = period_labels.index(current_label[0]) if current_label else 1
             
-            # ADIM 3: TAMAMEN SESSİZ MOD - Sadece İsim ve Renk
-            fig_heat.update_traces(
-                hoverinfo='none', # Hiçbir şey gösterme
-                hovertemplate=None,
-                texttemplate="<b>%{label}</b>", # Sadece İsim
-                textposition="middle center",
-                textfont=dict(size=14, color="white", family="Outfit"),
-                marker=dict(line=dict(width=1, color='rgba(0,0,0,0.5)'))
-            )
+            def on_period_change():
+                st.session_state.chart_period = period_options[st.session_state.period_select_chart]
             
-            fig_heat.update_layout(
-                margin=dict(t=30, l=0, r=0, b=0),
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                height=380,
-                coloraxis_showscale=False
-            )
+            st.selectbox("Dönem", period_labels, index=current_idx, key="period_select_chart", label_visibility="collapsed", on_change=on_period_change)
             
-            st.markdown('<div class="glass-card" style="padding:5px; overflow:hidden;">', unsafe_allow_html=True)
-            st.plotly_chart(
-                fig_heat, 
-                use_container_width=True, 
-                config={'displayModeBar': False},
-                key="razor_heat_hover_mode" 
-            )
-            
-            # --- YATAY RENK SKALASI (LEGEND BAR) ---
-            st.markdown("""
-            <div style="margin-top: 10px; margin-bottom: 5px; padding: 0 5px;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: rgba(255,255,255,0.5); font-weight: 500; font-family: 'Outfit', sans-serif;">
-                    <span>DÜŞÜŞ</span>
-                    <span>NÖTR</span>
-                    <span>YÜKSELİŞ</span>
-                </div>
-                <div style="
-                    height: 4px;
-                    width: 100%;
-                    border-radius: 2px;
-                    margin-top: 4px;
-                    background: linear-gradient(90deg, #ff3e3e 0%, #171b21 50%, #00ff88 100%);
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
-                "></div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown('</div><div style="margin-bottom: 20px;"></div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="glass-card" style="padding:40px; text-align:center; color:rgba(255,255,255,0.2);">Veri bulunmamaktadır.</div>', unsafe_allow_html=True)
-
-        # --- PASTA GRAFİK (ALTTA) ---
-        pie_data = [{"Kategori": f"{c['emoji']} {c['name']}", "Değer": c["val_tl"]} for c in categories if c["val_tl"] > 0]
-        if pie_data:
-            df_pie = pd.DataFrame(pie_data)
-            fig_pie = px.pie(df_pie, values='Değer', names='Kategori', hole=0.6,
-                            color_discrete_sequence=['#00f2ff', '#00ff88', '#7000ff', '#ff0070', '#ffcc00', '#0070ff', '#ff3e3e', '#ffffff'])
-            fig_pie.update_traces(
-                textinfo='none', # Pastada yüzdeleri kaldır
-                pull=[0.02] * len(df_pie),
-                hovertemplate="<b>%{label}</b><br>₺%{value:,.0f} (%{percent})<extra></extra>"
-            )
-            fig_pie.update_layout(
-                showlegend=True, 
-                legend=dict(
-                    orientation="h", # Açıklamalar alt satırda (yatay)
-                    yanchor="top", 
-                    y=-0.1, 
-                    xanchor="center", 
-                    x=0.5, 
-                    font=dict(color="white", size=8),
-                    bgcolor='rgba(0,0,0,0)',
-                    itemsizing='constant'
-                ),
-                margin=dict(t=10, b=80, l=10, r=10), # Alt marjı legend için artır
-                paper_bgcolor='rgba(0,0,0,0)', 
-                height=380 # Legend aşağı indiği için yüksekliği biraz artır
-            )
-            st.markdown('<div class="glass-card p-6">', unsafe_allow_html=True)
-            st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False})
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        if "chart_period" not in st.session_state:
-            st.session_state.chart_period = "5d"
-        
-        # BAŞLIK KALDIRILDI
-        
-        period_options = {"1 Hafta": "5d", "1 Ay": "1mo", "3 Ay": "3mo", "6 Ay": "6mo", "1 Yıl": "1y"}
-        period_labels = list(period_options.keys())
-        current_label = [k for k, v in period_options.items() if v == st.session_state.chart_period]
-        current_idx = period_labels.index(current_label[0]) if current_label else 1
-        
-        def on_period_change():
-            st.session_state.chart_period = period_options[st.session_state.period_select_chart]
-        
-        st.selectbox("Dönem", period_labels, index=current_idx, key="period_select_chart", label_visibility="collapsed", on_change=on_period_change)
-        
-        if agg_holdings:
-            history_df = get_portfolio_history(agg_holdings, period=st.session_state.chart_period)
-            if not history_df.empty:
-                import plotly.graph_objects as go
-                st.markdown('<div class="glass-card p-6">', unsafe_allow_html=True)
-                fig_perf = go.Figure()
-                fig_perf.add_trace(go.Scatter(x=history_df.index, y=history_df['Total_Cost'], name='Toplam Maliyet', line=dict(color='rgba(255, 255, 255, 0.4)', width=2, dash='dash'), hovertemplate='%{y:,.0f} TL<extra></extra>'))
-                fig_perf.add_trace(go.Scatter(x=history_df.index, y=history_df['Market_Value'], name='Piyasa Değeri', fill='tonexty', fillcolor='rgba(0, 242, 255, 0.1)', line=dict(color='#00f2ff', width=3), hovertemplate='%{y:,.0f} TL<extra></extra>'))
-                fig_perf.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=10, b=0), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="rgba(255,255,255,0.7)")), hovermode='x unified', xaxis=dict(showgrid=False, color='grey', zeroline=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', color='grey', zeroline=False))
-                st.plotly_chart(fig_perf, use_container_width=True, config={'displayModeBar': False})
-                st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.markdown('<div class="glass-card p-6" style="text-align:center; color:rgba(255,255,255,0.4); padding:40px;">Tarihsel veri yükleniyor...</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="glass-card p-6" style="text-align:center; color:rgba(255,255,255,0.4); padding:40px;">Portföyde varlık bulunmuyor</div>', unsafe_allow_html=True)
-
-        # PROFESSIONAL METRICS PANEL
-        
-        simple_ret = portfolio_metrics.get("simple_return"); xirr_val = portfolio_metrics.get("xirr"); inv_days = portfolio_metrics.get("investment_days")
-        twr_val = portfolio_metrics.get("twr"); bench_val = portfolio_metrics.get("benchmark_return"); alpha_val = portfolio_metrics.get("alpha")
-        
-        simple_display = f"%{simple_ret:.1f}" if simple_ret is not None else "—"; xirr_display = f"%{xirr_val:.1f}" if xirr_val is not None else "—"
-        days_display = f"{inv_days} gün" if inv_days is not None else "—"; twr_display = f"%{twr_val:.1f}" if twr_val is not None else "—"
-        bench_display = f"%{bench_val:.1f}" if bench_val is not None else "—"; alpha_display = f"%{alpha_val:+.1f}" if alpha_val is not None else "—"
-        
-        simple_cls = "text-glow-green" if simple_ret and simple_ret >= 0 else ("text-glow-red" if simple_ret and simple_ret < 0 else "")
-        xirr_cls = "text-glow-green" if xirr_val and xirr_val >= 0 else ("text-glow-red" if xirr_val and xirr_val < 0 else "")
-        twr_cls = "text-glow-green" if twr_val and twr_val >= 0 else ("text-glow-red" if twr_val and twr_val < 0 else "")
-        bench_cls = "text-glow-green" if bench_val and bench_val >= 0 else ("text-glow-red" if bench_val and bench_val < 0 else "")
-        alpha_cls = "text-glow-green" if alpha_val and alpha_val >= 0 else ("text-glow-red" if alpha_val and alpha_val < 0 else "")
-        
-        html_out = f'<div class="glass-card" style="padding: 15px; overflow: hidden;"><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%;">'
-        html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">Basit Getiri</div><div class="{simple_cls}" style="font-size: 1.15rem; font-weight: 800;">{simple_display}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">{days_display} toplam</div></div>'
-        html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(112, 0, 255, 0.05); border: 1px solid rgba(112, 0, 255, 0.2); border-radius: 12px; display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">XIRR (Yıllık)</div><div class="{xirr_cls if xirr_val is not None else ""}" style="font-size: 1.15rem; font-weight: 800;">{xirr_display if xirr_val is not None else "Bekleniyor"}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">{"Yıllık" if xirr_val is not None else "30 gün veri gerekli"}</div></div>'
-        html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">TWR</div><div class="{twr_cls}" style="font-size: 1.15rem; font-weight: 800;">{twr_display}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">Zaman ağırlıklı</div></div>'
-        # Re-add BIST100 Card
-        html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">BIST100</div><div class="{bench_cls}" style="font-size: 1.15rem; font-weight: 800;">{bench_display}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">Piyasa</div></div>'
-
-        # ADD USD VALUE CARD
-        tv_usd = total_val_tl / usd_rate
-        html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">VARLIK (USD)</div><div style="color: #00f2ff; font-size: 1.15rem; font-weight: 800;">${tv_usd:,.0f}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">Kur: {usd_rate:.2f}</div></div>'
-
-        # ALPHA CALCULATION
-        try:
-            bench_change = float(bench_display.replace("%", "").strip())
-        except:
-            bench_change = 0.0
-            
-        alpha_val = avg_total - bench_change
-        alpha_cls = "text-[#00ff88]" if alpha_val >= 0 else "text-[#ff3e3e]"
-        alpha_sign = "+" if alpha_val >= 0 else ""
-        
-        html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(0, 242, 255, 0.05); border-radius: 12px; border: 1px solid rgba(0, 242, 255, 0.2); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">ALPHA (α)</div><div style="color:{"#00ff88" if alpha_val>=0 else "#ff3e3e"}; font-size: 1.15rem; font-weight: 800;">{alpha_sign}%{alpha_val:.1f}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">Piyasa Farkı</div></div>'
-        
-        html_out += '</div></div>'
-        st.write(html_out, unsafe_allow_html=True)
-
-        # --- MARKET SENTIMENT (VIX) ---
-        vix_data = get_current_data("^VIX", "endeks")
-        vix_val = vix_data["price"] if vix_data else 0
-        vix_change = ((vix_data["price"] / vix_data["prev_close"] - 1) * 100) if vix_data and vix_data["prev_close"] else 0
-        
-        if vix_val > 0:
-            if vix_val < 17:
-                fear_label = "SAKİN PİYASA"
-                fear_color = "#00ff88" # Green
-                fear_emoji = "😎"
-                fear_desc = "Risk iştahı yüksek, korku düşük."
-            elif vix_val < 25:
-                fear_label = "NORMAL / ENDİŞELİ"
-                fear_color = "#ffcc00" # Yellow
-                fear_emoji = "🤔"
-                fear_desc = "Volatilite artıyor, dikkatli olun."
-            else:
-                fear_label = "YÜKSEK KORKU"
-                fear_color = "#ff3e3e" # Red
-                fear_emoji = "😱"
-                fear_desc = "Panik satışları ve yüksek stres."
-            
-            v_change_color = "#ff3e3e" if vix_change > 0 else "#00ff88" # VIX artarsa kötü (Kırmızı)
-            
-            st.markdown(f"""
-            <div class="glass-card" style="padding:15px; display:flex; justify-content:space-between; align-items:center; margin-top:20px; margin-bottom:0px; border-left:4px solid {fear_color};">
-                <div>
-                    <div style="font-size:0.7rem; font-weight:800; color:rgba(255,255,255,0.5); letter-spacing:1px; margin-bottom:5px;">KORKU ENDEKSİ (VIX)</div>
-                    <div style="font-size:1.6rem; font-weight:800; color:white; line-height:1;">{vix_val:.2f}</div>
-                    <div style="font-size:0.75rem; color:{fear_color}; font-weight:700; margin-top:5px;">{fear_label}</div>
-                    <div style="font-size:0.65rem; color:rgba(255,255,255,0.4); margin-top:2px;">{fear_desc}</div>
-                </div>
-                <div style="text-align:right;">
-                    <div style="background:{v_change_color}20; color:{v_change_color}; padding:4px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; display:inline-block; margin-bottom:5px;">
-                        {'+' if vix_change > 0 else ''}{vix_change:.2f}%
-                    </div>
-                    <div style="font-size:2.5rem; line-height:1; filter: drop-shadow(0 0 10px {fear_color}60);">{fear_emoji}</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # --- CRYPTO FEAR & GREED INDEX ---
-        fng_data = get_crypto_fng()
-        if fng_data:
-            fng_val = int(fng_data.get("value", 50))
-            fng_class = fng_data.get("value_classification", "Neutral")
-            
-            # Color Mapping
-            if fng_val < 25: 
-                fng_color = "#ff3e3e"; fng_emoji = "☠️"; fng_trend = "AŞIRI KORKU"
-            elif fng_val < 46: 
-                fng_color = "#ffcc00"; fng_emoji = "😨"; fng_trend = "KORKU"
-            elif fng_val < 55: 
-                fng_color = "#cccccc"; fng_emoji = "😐"; fng_trend = "NÖTR"
-            elif fng_val < 76: 
-                fng_color = "#00ff88"; fng_emoji = "🤑"; fng_trend = "AÇGÖZLÜLÜK"
-            else: 
-                fng_color = "#00f2ff"; fng_emoji = "🚀"; fng_trend = "AŞIRI AÇGÖZLÜLÜK"
-            
-            st.markdown(f"""
-            <div class="glass-card" style="padding:15px; display:flex; justify-content:space-between; align-items:center; margin-top:10px; margin-bottom:0px; border-left:4px solid {fng_color};">
-                <div>
-                    <div style="font-size:0.7rem; font-weight:800; color:rgba(255,255,255,0.5); letter-spacing:1px; margin-bottom:5px;">KRİPTO AÇGÖZLÜLÜK</div>
-                    <div style="font-size:1.6rem; font-weight:800; color:white; line-height:1;">{fng_val}</div>
-                    <div style="font-size:0.75rem; color:{fng_color}; font-weight:700; margin-top:5px;">{fng_class}</div>
-                    <div style="font-size:0.65rem; color:rgba(255,255,255,0.4); margin-top:2px;">{fng_trend}</div>
-                </div>
-                <div style="text-align:right;">
-                    <div style="font-size:2.5rem; line-height:1; filter: drop-shadow(0 0 10px {fng_color}60);">{fng_emoji}</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # --- TRADINGVIEW TECHNICAL ANALYSIS WIDGET ---
-        import streamlit.components.v1 as components
-        
-        # Widget HTML
-        tv_widget_code = """
-        <!-- TradingView Widget BEGIN -->
-        <div class="tradingview-widget-container">
-          <div class="tradingview-widget-container__widget"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js" async>
-          {
-          "interval": "4h",
-          "width": "100%",
-          "isTransparent": true,
-          "height": "400",
-          "symbol": "BIST:XU100",
-          "showIntervalTabs": true,
-          "displayMode": "single",
-          "locale": "tr",
-          "colorTheme": "dark"
-          }
-          </script>
-        </div>
-        <!-- TradingView Widget END -->
-        <style>
-            .tradingview-widget-container { background: transparent !important; }
-        </style>
-        """
-        
-        st.markdown('<div class="glass-card" style="padding:0; overflow:hidden; border:1px solid rgba(255,255,255,0.05);">', unsafe_allow_html=True)
-        components.html(tv_widget_code, height=410, scrolling=False)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Old Risk/Insight location cleared
-
-    with cols[1]:
-        # METRIC CARDS RE-ADDED
-        d_color = "text-[#00ff88]" if daily_kz_amount >= 0 else "text-[#ff3e3e]"
-        t_color = "text-[#00ff88]" if total_kz_amount >= 0 else "text-[#ff3e3e]"
-        dkz_sign = "+" if daily_kz_amount >= 0 else ""
-        tkz_sign = "+" if total_kz_amount >= 0 else ""
-        
-        tv_tl_str = f"{total_val_tl:,.0f} TL"
-        tv_usd_str = f"${tv_usd:,.0f}"
-        tv_gold_str = f"{tv_gold:,.1f} gr Altın"
-        dkz_str = f"{dkz_sign}{daily_kz_amount:,.0f} TL"
-        tkz_str = f"{tkz_sign}{total_kz_amount:,.0f} TL"
-        avg_d_str = f"%{avg_daily:+.2f}"
-        avg_t_str = f"%{avg_total:+.2f}"
-        
-        # Updated Premium Design for Metric Cards
-        d_color_main = "#00ff88" if daily_kz_amount >= 0 else "#ff3e3e"
-        t_color_main = "#00ff88" if total_kz_amount >= 0 else "#ff3e3e"
-        
-        cards_html = (
-            f'<div style="display:flex; gap:15px; margin-bottom:25px; width:100%;">'
-            
-            # CARD 1: TOPLAM VARLIK
-            f'<div style="flex:1; background:linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border:1px solid rgba(255,255,255,0.1); border-radius:16px; padding:20px; position:relative; overflow:hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">'
-                f'<div style="position:absolute; top:-10px; right:-5px; font-size:6rem; opacity:0.05; transform:rotate(10deg);">💼</div>'
-                f'<div style="color:rgba(255,255,255,0.5); font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">TOPLAM VARLIK</div>'
-                f'<div style="color:white; font-size:1.8rem; font-weight:800; letter-spacing:-0.5px; text-shadow: 0 2px 10px rgba(255,255,255,0.1);">{tv_tl_str}</div>'
-                f'<div style="display:flex; gap:10px; margin-top:8px; font-size:0.75rem; color:rgba(255,255,255,0.4); font-weight:500;">'
-                    f'<span>{tv_usd_str}</span><span style="opacity:0.3;">|</span><span>{tv_gold_str}</span>'
-                f'</div>'
-            f'</div>'
-            
-            # CARD 2: GÜNLÜK DEĞİŞİM
-            f'<div style="flex:1; background:linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border:1px solid rgba(255,255,255,0.1); border-bottom:3px solid {d_color_main}; border-radius:16px; padding:20px; position:relative; overflow:hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">'
-                f'<div style="position:absolute; top:-10px; right:-5px; font-size:6rem; opacity:0.05; transform:rotate(10deg);">📈</div>'
-                f'<div style="color:rgba(255,255,255,0.5); font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">GÜNLÜK DEĞİŞİM</div>'
-                f'<div style="color:{d_color_main}; font-size:1.8rem; font-weight:800; letter-spacing:-0.5px; text-shadow: 0 0 25px {d_color_main}30;">{dkz_str}</div>'
-                f'<div style="margin-top:8px;">'
-                    f'<span style="background:{d_color_main}15; color:{d_color_main}; padding:4px 10px; border-radius:8px; font-size:0.8rem; font-weight:700; border:1px solid {d_color_main}30;">{avg_d_str}</span>'
-                f'</div>'
-            f'</div>'
-            
-            # CARD 3: TOPLAM KAR/ZARAR
-            f'<div style="flex:1; background:linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border:1px solid rgba(255,255,255,0.1); border-bottom:3px solid {t_color_main}; border-radius:16px; padding:20px; position:relative; overflow:hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">'
-                f'<div style="position:absolute; top:-10px; right:-5px; font-size:6rem; opacity:0.05; transform:rotate(10deg);">💰</div>'
-                f'<div style="color:rgba(255,255,255,0.5); font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">TOPLAM K/Z</div>'
-                f'<div style="color:{t_color_main}; font-size:1.8rem; font-weight:800; letter-spacing:-0.5px; text-shadow: 0 0 25px {t_color_main}30;">{tkz_str}</div>'
-                f'<div style="margin-top:8px;">'
-                    f'<span style="background:{t_color_main}15; color:{t_color_main}; padding:4px 10px; border-radius:8px; font-size:0.8rem; font-weight:700; border:1px solid {t_color_main}30;">{avg_t_str}</span>'
-                f'</div>'
-            f'</div>'
-            
-            f'</div>'
-        )
-        st.markdown(cards_html, unsafe_allow_html=True)
-        st.markdown('<div class="glass-card p-6">', unsafe_allow_html=True)
-        # Custom Header with st.columns for perfect alignment
-        h_cols = st.columns([3.5, 2.5, 2, 2, 1])
-        headers = ["PORTFÖY ADI", "TOPLAM DEĞER", "GÜNLÜK K/Z", "TOPLAM K/Z", ""]
-        for i, h_text in enumerate(headers):
-            with h_cols[i]:
-                st.markdown(f'<div style="color: rgba(255, 255, 255, 0.4); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 10px 0;">{h_text}</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div style="border-bottom: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 10px;"></div>', unsafe_allow_html=True)
-
-        
-        # Sort portfolios by value (largest first) and show all, gray out ones not in selected_p
-        # First calculate values for all portfolios for sorting
-        portfolio_values = {}
-        for p_name in all_portfolios:
-            if p_name in st.session_state.selected_p:
-                portfolio_values[p_name] = p_metrics.get(p_name, {"val": 0})["val"]
-            else:
-                # Calculate value for excluded portfolios
-                exc_val = 0
-                for h in [hd for hd in all_holdings if hd["p"] == p_name]:
-                    d = get_current_data(h["symbol"], h.get("type"))
-                    if d:
-                        t = h.get("type", "").lower()
-                        currency = "USD" if ("abd" in t or "kripto" in t or ("emtia" in t and h["symbol"].upper() not in ["ALTIN", "GÜMÜŞ"])) else "TL"
-                        rate = usd_rate if currency == "USD" else 1.0
-                        exc_val += d["price"] * h["amount"] * rate
-                portfolio_values[p_name] = exc_val
-        
-        # Sort: included portfolios first (by value desc), then excluded (by value desc)
-        included_portfolios = sorted([p for p in all_portfolios if p in st.session_state.selected_p], 
-                                      key=lambda x: portfolio_values.get(x, 0), reverse=True)
-        excluded_portfolios = sorted([p for p in all_portfolios if p not in st.session_state.selected_p], 
-                                      key=lambda x: portfolio_values.get(x, 0), reverse=True)
-        sorted_portfolios = included_portfolios + excluded_portfolios
-        
-        for p_name in sorted_portfolios:
-            m = p_metrics.get(p_name, {"val": 0, "cost": 0, "prev": 0})
-            is_included = p_name in st.session_state.selected_p
-            
-            # Calculate portfolio value for all portfolios
-            if not is_included:
-                # Recalculate for excluded portfolios
-                p_holdings_fixed = [h for h in all_holdings if h["p"] == p_name]
-                exc_val = 0
-                exc_cost = 0
-                exc_prev = 0
-                for h in p_holdings_fixed:
-                    d = get_current_data(h["symbol"], h.get("type"))
-                    if d:
-                        cat_idx, currency, cat_emoji = get_asset_details(h["symbol"], h.get("type", ""))
-                        rate = usd_rate if currency == "USD" else 1.0
-                        exc_val += d["price"] * h["amount"] * rate
-                        exc_cost += h["cost"] * h["amount"] * rate
-                        exc_prev += d["prev_close"] * h["amount"] * rate
-                m = {"val": exc_val, "cost": exc_cost, "prev": exc_prev}
-            
-            if True:  # Show all portfolios
-                pt = (m["val"]/m["cost"]-1)*100 if m["cost"] else 0
-                pd = (m["val"]/m["prev"]-1)*100 if m.get("prev") and m["prev"] > 0 else 0
-                
-                total_kz_tl = m["val"] - m["cost"]
-                daily_kz_tl = m["val"] - m["prev"]
-                
-                t_sign = "+" if total_kz_tl >= 0 else ""
-                d_sign = "+" if daily_kz_tl >= 0 else ""
-                
-                if is_included:
-                    # Normal styling
-                    name_color = "white"
-                    val_color = "white"
-                    icon_color = "#00f2ff"
-                    t_cls = "text-glow-green" if pt > 0 else ("text-glow-red" if pt < 0 else "")
-                    status_badge = ""
+            if agg_holdings:
+                history_df = get_portfolio_history(agg_holdings, period=st.session_state.chart_period)
+                if not history_df.empty:
+                    import plotly.graph_objects as go
+                    st.markdown('<div class="glass-card p-6">', unsafe_allow_html=True)
+                    fig_perf = go.Figure()
+                    fig_perf.add_trace(go.Scatter(x=history_df.index, y=history_df['Total_Cost'], name='Toplam Maliyet', line=dict(color='rgba(255, 255, 255, 0.4)', width=2, dash='dash'), hovertemplate='%{y:,.0f} TL<extra></extra>'))
+                    fig_perf.add_trace(go.Scatter(x=history_df.index, y=history_df['Market_Value'], name='Piyasa Değeri', fill='tonexty', fillcolor='rgba(0, 242, 255, 0.1)', line=dict(color='#00f2ff', width=3), hovertemplate='%{y:,.0f} TL<extra></extra>'))
+                    fig_perf.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=10, b=0), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="rgba(255,255,255,0.7)")), hovermode='x unified', xaxis=dict(showgrid=False, color='grey', zeroline=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', color='grey', zeroline=False))
+                    st.plotly_chart(fig_perf, use_container_width=True, config={'displayModeBar': False})
+                    st.markdown('</div>', unsafe_allow_html=True)
                 else:
-                    # Muted styling for excluded
-                    name_color = "rgba(255,255,255,0.25)"
-                    val_color = "rgba(255,255,255,0.2)"
-                    icon_color = "rgba(255,255,255,0.1)"
-                    t_cls = ""
-                    status_badge = '<span style="background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.3); font-size:0.6rem; padding:2px 6px; border-radius:4px; margin-left:8px; border:1px solid rgba(255,255,255,0.05);">Dahil değil</span>'
-                
-                rc = st.columns([3.5, 2.5, 2, 2, 1])
-                with rc[0]: 
-                    st.markdown(f'<div style="line-height:20px; padding: 10px 0 10px 15px; color:{name_color}; font-size:0.85rem;"><i class="fas fa-folder" style="color:{icon_color}; margin-right:8px;"></i>{p_name}{status_badge}</div>', unsafe_allow_html=True)
-                with rc[1]: 
-                    val_display = f"{m['val']:,.0f} TL" if m["val"] > 0 else "—"
-                    st.markdown(f'<div style="line-height:40px; color:{val_color}; font-size:0.85rem;">{val_display}</div>', unsafe_allow_html=True)
-                with rc[2]: 
-                    d_cls = "text-glow-green" if daily_kz_tl > 0 else ("text-glow-red" if daily_kz_tl < 0 else "") if is_included else ""
-                    d_opacity = "1" if is_included else "0.2"
-                    st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem; color:{val_color}; opacity:{d_opacity};" class="{d_cls}">%{pd:.1f}<br><span style="font-size:0.7rem; opacity:0.6;">{d_sign}{daily_kz_tl:,.0f} TL</span></div>', unsafe_allow_html=True)
-                with rc[3]: 
-                    t_cls = "text-glow-green" if total_kz_tl > 0 else ("text-glow-red" if total_kz_tl < 0 else "") if is_included else ""
-                    t_opacity = "1" if is_included else "0.2"
-                    st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem; color:{val_color}; opacity:{t_opacity};" class="{t_cls}">%{pt:.1f}<br><span style="font-size:0.7rem; opacity:0.6;">{t_sign}{total_kz_tl:,.0f} TL</span></div>', unsafe_allow_html=True)
-                with rc[4]: 
-                    if st.button("👁️", key=f"vp_{p_name}"):
-                        if is_included:
-                            pl = [h for h in detailed_list if h["Portföy"] == p_name]
-                        else:
-                            # Build detailed list for excluded portfolio
-                            pl = []
-                            excluded_holdings = [h for h in all_holdings if h["p"] == p_name]
-                            for h in excluded_holdings:
-                                d = get_current_data(h["symbol"], h.get("type"))
-                                if d:
-                                    cat_idx, currency, cat_emoji = get_asset_details(h["symbol"], h.get("type", ""))
-                                    pl.append({
-                                        "Emoji": cat_emoji, "Varlık": h["symbol"], "Portföy": p_name,
-                                        "Adet": h["amount"], "Maliyet": h["cost"], "T_Maliyet": h["cost"]*h["amount"],
-                                        "Güncel": d["price"], "Deger": d["price"]*h["amount"], 
-                                        "Gunluk_KZ": (d["price"] - d["prev_close"])*h["amount"],
-                                        "Toplam_KZ": (d["price"] - h["cost"])*h["amount"], 
-                                        "Günlük (%)": (d["price"]/d["prev_close"]-1)*100,
-                                        "Toplam (%)": (d["price"]/h["cost"]-1)*100, "Para": currency
-                                    })
-                        portfolio_details_dialog(p_name, pl)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div style="margin-top:30px; margin-bottom:15px; display:flex; align-items:center; gap:10px;"><i class="fas fa-chart-pie" style="color:#00f2ff;"></i><span style="color:white; font-weight:600; font-size:1rem;">Varlık Dağılımı</span></div>', unsafe_allow_html=True)
-        st.markdown('<div class="glass-card p-6">', unsafe_allow_html=True)
-        
-        # Header for categories
-        # Custom Header for Asset Distribution
-        c_h_cols = st.columns([2.5, 2, 2, 1.2, 1.3, 1])
-        c_headers = ["KATEGORİ", "MALİYET", "DEĞER", "GÜNLÜK", "TOPLAM", ""]
-        for i, h_text in enumerate(c_headers):
-            with c_h_cols[i]:
-                st.markdown(f'<div style="color: rgba(255, 255, 255, 0.4); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 10px 0;">{h_text}</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div style="border-bottom: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 10px;"></div>', unsafe_allow_html=True)
-
-
-        sorted_categories = sorted(categories, key=lambda x: x["val_tl"], reverse=True)
-        for c in sorted_categories:
-            if c['val_tl'] > 0:
-                v_str = f"{c['val']:,.0f} {c['currency']}"
-                c_str = f"{c['cost']:,.0f} {c['currency']}"
-                d_val = f"%{c['daily']:.1f}"
-                t_val = f"%{c['change']:.1f}"
-                
-                # Calculate amounts
-                d_amt = c['val'] - c['prev']
-                t_amt = c['val'] - c['cost']
-                d_sign = "+" if d_amt > 0 else ""
-                t_sign = "+" if t_amt > 0 else ""
-                
-                d_cls = "text-glow-green" if c["daily"] > 0 else ("text-glow-red" if c["daily"] < 0 else "")
-                t_cls = "text-glow-green" if c["change"] > 0 else ("text-glow-red" if c["change"] < 0 else "")
-                
-                c_cols = st.columns([2.5, 2, 2, 1.2, 1.3, 1])
-                with c_cols[0]:
-                    st.markdown(f'<div style="line-height:40px; color:white; font-weight:500; font-size:0.85rem; padding-left:15px;">{c["emoji"]} {c["name"]}</div>', unsafe_allow_html=True)
-                with c_cols[1]:
-                    st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem;">{c_str}</div>', unsafe_allow_html=True)
-                with c_cols[2]:
-                    st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem; font-weight:600;">{v_str}</div>', unsafe_allow_html=True)
-                with c_cols[3]:
-                    st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem;" class="{d_cls}">{d_val}<br><span style="font-size:0.7rem; opacity:0.6;">{d_sign}{d_amt:,.0f} {c["currency"]}</span></div>', unsafe_allow_html=True)
-                with c_cols[4]:
-                    st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem;" class="{t_cls}">{t_val}<br><span style="font-size:0.7rem; opacity:0.6;">{t_sign}{t_amt:,.0f} {c["currency"]}</span></div>', unsafe_allow_html=True)
-                with c_cols[5]:
-                    if st.button("👁️", key=f"vc_{c['name']}"):
-                        # Filter detailed_list by category name logic
-                        cat_assets = [h for h in detailed_list if c["emoji"] in h.get("Emoji", "")]
-                        if not cat_assets:
-                            cat_assets = [h for h in detailed_list if h.get("Emoji") == c["emoji"]]
-                        portfolio_details_dialog(f"{c['emoji']} {c['name']} Varlıkları", cat_assets)
-                        
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # ALL ASSETS
-        if "asset_sort_by" not in st.session_state:
-            st.session_state.asset_sort_by = "Değer"
-        
-        # Header and Sort Controls in a single line
-        header_cols = st.columns([1, 1])
-        with header_cols[0]:
-            st.markdown('<div style="margin-top:10px; margin-bottom:15px; display:flex; align-items:center; gap:10px;"><i class="fas fa-list-ul" style="color:#00f2ff;"></i><span style="color:white; font-weight:600; font-size:1rem;">Tüm Varlıklarım</span></div>', unsafe_allow_html=True)
-        
-        with header_cols[1]:
-            sort_options = {"Değer": "Deger_TL", "Günlük %": "Günlük (%)", "Toplam %": "Toplam (%)"}
-            def on_sort_change():
-                st.session_state.asset_sort_by = st.session_state.asset_sort_radio
-            st.radio("Sırala", options=list(sort_options.keys()), key="asset_sort_radio", index=list(sort_options.keys()).index(st.session_state.asset_sort_by), horizontal=True, label_visibility="collapsed", on_change=on_sort_change)
-
-        sort_key = sort_options.get(st.session_state.asset_sort_by, "Deger")
-        dr = ""
-        sorted_detailed_list = sorted(detailed_list, key=lambda x: x.get(sort_key, 0), reverse=True)
-        for h in sorted_detailed_list:
-            curr = h.get("Para", "TL")
-            g_kz = h.get("Gunluk_KZ", 0)
-            t_kz = h.get("Toplam_KZ", 0)
-            g_cls = "text-glow-green" if g_kz > 0 else ("text-glow-red" if g_kz < 0 else "")
-            t_cls = "text-glow-green" if t_kz > 0 else ("text-glow-red" if t_kz < 0 else "")
-            val_style = "font-weight:600;" if sort_key == "Deger_TL" else ""
-            g_row_cls = "background: rgba(0, 242, 255, 0.03);" if sort_key == "Günlük (%)" else ""
-            t_row_cls = "background: rgba(0, 242, 255, 0.03);" if sort_key == "Toplam (%)" else ""
+                    st.markdown('<div class="glass-card p-6" style="text-align:center; color:rgba(255,255,255,0.4); padding:40px;">Tarihsel veri yükleniyor...</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="glass-card p-6" style="text-align:center; color:rgba(255,255,255,0.4); padding:40px;">Portföyde varlık bulunmuyor</div>', unsafe_allow_html=True)
+    
+            # PROFESSIONAL METRICS PANEL
             
-            # Pre-format values to avoid f-string syntax errors
-            maliyet_str = f"{h['Maliyet']:,.2f}"
-            tmaliyet_str = f"{h['T_Maliyet']:,.2f}"
-            guncel_str = f"{h['Güncel']:,.2f}"
-            deger_str = f"{h['Deger']:,.2f}"
-            gunluk_yuzde_str = f"%{h['Günlük (%)']:.2f}"
-            toplam_yuzde_str = f"%{h['Toplam (%)']:.2f}"
-            g_kz_str = f"({g_kz:,.0f})"
-            t_kz_str = f"({t_kz:,.0f})"
-
-            dr += f'''<tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
-                <td style="color:white !important; font-weight:500; padding:12px 15px;">{h['Emoji']} {h['Varlık']}<br><span style="font-size:0.7rem; color:#00f2ff;">{h['Portföy']}</span></td>
-                <td style="color:white !important; padding:12px 15px;">{maliyet_str} {curr}</td>
-                <td style="color:white !important; padding:12px 15px;">{tmaliyet_str} {curr}</td>
-                <td style="color:white !important; padding:12px 15px;">{guncel_str} {curr}</td>
-                <td style="color:white !important; {val_style} padding:12px 15px;">{deger_str} {curr}</td>
-                <td class="{g_cls}" style="{g_row_cls} padding:12px 15px;">{gunluk_yuzde_str}<br><span style="font-size:0.7rem;">{g_kz_str}</span></td>
-                <td class="{t_cls}" style="{t_row_cls} padding:12px 15px;">{toplam_yuzde_str}<br><span style="font-size:0.7rem;">{t_kz_str}</span></td>
-            </tr>'''
-        
-        if dr:
-            table_html = f'''
-            <div class="glass-card" style="padding: 10px; overflow-x: auto;">
-                <table class="modern-table" style="width:100%; border-collapse: collapse;">
-                    <thead>
-                        <tr>
-                            <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">VARLIK</th>
-                            <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">MALİYET</th>
-                            <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">TOPLAM ALIŞ</th>
-                            <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">GÜNCEL</th>
-                            <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">TOPLAM DEĞER</th>
-                            <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem; {'border-left:1px solid rgba(0,242,255,0.2);' if sort_key == 'Günlük (%)' else ''}">GÜNLÜK K/Z</th>
-                            <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem; {'border-left:1px solid rgba(0,242,255,0.2);' if sort_key == 'Toplam (%)' else ''}">TOPLAM K/Z</th>
-                        </tr>
-                    </thead>
-                    <tbody>{dr}</tbody>
-                </table>
+            simple_ret = portfolio_metrics.get("simple_return"); xirr_val = portfolio_metrics.get("xirr"); inv_days = portfolio_metrics.get("investment_days")
+            twr_val = portfolio_metrics.get("twr"); bench_val = portfolio_metrics.get("benchmark_return"); alpha_val = portfolio_metrics.get("alpha")
+            
+            simple_display = f"%{simple_ret:.1f}" if simple_ret is not None else "—"; xirr_display = f"%{xirr_val:.1f}" if xirr_val is not None else "—"
+            days_display = f"{inv_days} gün" if inv_days is not None else "—"; twr_display = f"%{twr_val:.1f}" if twr_val is not None else "—"
+            bench_display = f"%{bench_val:.1f}" if bench_val is not None else "—"; alpha_display = f"%{alpha_val:+.1f}" if alpha_val is not None else "—"
+            
+            simple_cls = "text-glow-green" if simple_ret and simple_ret >= 0 else ("text-glow-red" if simple_ret and simple_ret < 0 else "")
+            xirr_cls = "text-glow-green" if xirr_val and xirr_val >= 0 else ("text-glow-red" if xirr_val and xirr_val < 0 else "")
+            twr_cls = "text-glow-green" if twr_val and twr_val >= 0 else ("text-glow-red" if twr_val and twr_val < 0 else "")
+            bench_cls = "text-glow-green" if bench_val and bench_val >= 0 else ("text-glow-red" if bench_val and bench_val < 0 else "")
+            alpha_cls = "text-glow-green" if alpha_val and alpha_val >= 0 else ("text-glow-red" if alpha_val and alpha_val < 0 else "")
+            
+            html_out = f'<div class="glass-card" style="padding: 15px; overflow: hidden;"><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%;">'
+            html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">Basit Getiri</div><div class="{simple_cls}" style="font-size: 1.15rem; font-weight: 800;">{simple_display}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">{days_display} toplam</div></div>'
+            html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(112, 0, 255, 0.05); border: 1px solid rgba(112, 0, 255, 0.2); border-radius: 12px; display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">XIRR (Yıllık)</div><div class="{xirr_cls if xirr_val is not None else ""}" style="font-size: 1.15rem; font-weight: 800;">{xirr_display if xirr_val is not None else "Bekleniyor"}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">{"Yıllık" if xirr_val is not None else "30 gün veri gerekli"}</div></div>'
+            html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">TWR</div><div class="{twr_cls}" style="font-size: 1.15rem; font-weight: 800;">{twr_display}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">Zaman ağırlıklı</div></div>'
+            # Re-add BIST100 Card
+            html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">BIST100</div><div class="{bench_cls}" style="font-size: 1.15rem; font-weight: 800;">{bench_display}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">Piyasa</div></div>'
+    
+            # ADD USD VALUE CARD
+            tv_usd = total_val_tl / usd_rate
+            html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">VARLIK (USD)</div><div style="color: #00f2ff; font-size: 1.15rem; font-weight: 800;">${tv_usd:,.0f}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">Kur: {usd_rate:.2f}</div></div>'
+    
+            # ALPHA CALCULATION
+            try:
+                bench_change = float(bench_display.replace("%", "").strip())
+            except:
+                bench_change = 0.0
+                
+            alpha_val = avg_total - bench_change
+            alpha_cls = "text-[#00ff88]" if alpha_val >= 0 else "text-[#ff3e3e]"
+            alpha_sign = "+" if alpha_val >= 0 else ""
+            
+            html_out += f'<div style="text-align: center; padding: 12px 5px; background: rgba(0, 242, 255, 0.05); border-radius: 12px; border: 1px solid rgba(0, 242, 255, 0.2); display: flex; flex-direction: column; justify-content: center; min-height: 85px;"><div style="color: rgba(255,255,255,0.4); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">ALPHA (α)</div><div style="color:{"#00ff88" if alpha_val>=0 else "#ff3e3e"}; font-size: 1.15rem; font-weight: 800;">{alpha_sign}%{alpha_val:.1f}</div><div style="color: rgba(255,255,255,0.25); font-size: 0.55rem; margin-top: 4px;">Piyasa Farkı</div></div>'
+            
+            html_out += '</div></div>'
+            st.write(html_out, unsafe_allow_html=True)
+    
+            # --- MARKET SENTIMENT (VIX) ---
+            vix_data = get_current_data("^VIX", "endeks")
+            vix_val = vix_data["price"] if vix_data else 0
+            vix_change = ((vix_data["price"] / vix_data["prev_close"] - 1) * 100) if vix_data and vix_data["prev_close"] else 0
+            
+            if vix_val > 0:
+                if vix_val < 17:
+                    fear_label = "SAKİN PİYASA"
+                    fear_color = "#00ff88" # Green
+                    fear_emoji = "😎"
+                    fear_desc = "Risk iştahı yüksek, korku düşük."
+                elif vix_val < 25:
+                    fear_label = "NORMAL / ENDİŞELİ"
+                    fear_color = "#ffcc00" # Yellow
+                    fear_emoji = "🤔"
+                    fear_desc = "Volatilite artıyor, dikkatli olun."
+                else:
+                    fear_label = "YÜKSEK KORKU"
+                    fear_color = "#ff3e3e" # Red
+                    fear_emoji = "😱"
+                    fear_desc = "Panik satışları ve yüksek stres."
+                
+                v_change_color = "#ff3e3e" if vix_change > 0 else "#00ff88" # VIX artarsa kötü (Kırmızı)
+                
+                st.markdown(f"""
+                <div class="glass-card" style="padding:15px; display:flex; justify-content:space-between; align-items:center; margin-top:20px; margin-bottom:0px; border-left:4px solid {fear_color};">
+                    <div>
+                        <div style="font-size:0.7rem; font-weight:800; color:rgba(255,255,255,0.5); letter-spacing:1px; margin-bottom:5px;">KORKU ENDEKSİ (VIX)</div>
+                        <div style="font-size:1.6rem; font-weight:800; color:white; line-height:1;">{vix_val:.2f}</div>
+                        <div style="font-size:0.75rem; color:{fear_color}; font-weight:700; margin-top:5px;">{fear_label}</div>
+                        <div style="font-size:0.65rem; color:rgba(255,255,255,0.4); margin-top:2px;">{fear_desc}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="background:{v_change_color}20; color:{v_change_color}; padding:4px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; display:inline-block; margin-bottom:5px;">
+                            {'+' if vix_change > 0 else ''}{vix_change:.2f}%
+                        </div>
+                        <div style="font-size:2.5rem; line-height:1; filter: drop-shadow(0 0 10px {fear_color}60);">{fear_emoji}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    
+            # --- CRYPTO FEAR & GREED INDEX ---
+            fng_data = get_crypto_fng()
+            if fng_data:
+                fng_val = int(fng_data.get("value", 50))
+                fng_class = fng_data.get("value_classification", "Neutral")
+                
+                # Color Mapping
+                if fng_val < 25: 
+                    fng_color = "#ff3e3e"; fng_emoji = "☠️"; fng_trend = "AŞIRI KORKU"
+                elif fng_val < 46: 
+                    fng_color = "#ffcc00"; fng_emoji = "😨"; fng_trend = "KORKU"
+                elif fng_val < 55: 
+                    fng_color = "#cccccc"; fng_emoji = "😐"; fng_trend = "NÖTR"
+                elif fng_val < 76: 
+                    fng_color = "#00ff88"; fng_emoji = "🤑"; fng_trend = "AÇGÖZLÜLÜK"
+                else: 
+                    fng_color = "#00f2ff"; fng_emoji = "🚀"; fng_trend = "AŞIRI AÇGÖZLÜLÜK"
+                
+                st.markdown(f"""
+                <div class="glass-card" style="padding:15px; display:flex; justify-content:space-between; align-items:center; margin-top:10px; margin-bottom:0px; border-left:4px solid {fng_color};">
+                    <div>
+                        <div style="font-size:0.7rem; font-weight:800; color:rgba(255,255,255,0.5); letter-spacing:1px; margin-bottom:5px;">KRİPTO AÇGÖZLÜLÜK</div>
+                        <div style="font-size:1.6rem; font-weight:800; color:white; line-height:1;">{fng_val}</div>
+                        <div style="font-size:0.75rem; color:{fng_color}; font-weight:700; margin-top:5px;">{fng_class}</div>
+                        <div style="font-size:0.65rem; color:rgba(255,255,255,0.4); margin-top:2px;">{fng_trend}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:2.5rem; line-height:1; filter: drop-shadow(0 0 10px {fng_color}60);">{fng_emoji}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    
+            # --- TRADINGVIEW TECHNICAL ANALYSIS WIDGET ---
+            import streamlit.components.v1 as components
+            
+            # Widget HTML
+            tv_widget_code = """
+            <!-- TradingView Widget BEGIN -->
+            <div class="tradingview-widget-container">
+              <div class="tradingview-widget-container__widget"></div>
+              <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js" async>
+              {
+              "interval": "4h",
+              "width": "100%",
+              "isTransparent": true,
+              "height": "400",
+              "symbol": "BIST:XU100",
+              "showIntervalTabs": true,
+              "displayMode": "single",
+              "locale": "tr",
+              "colorTheme": "dark"
+              }
+              </script>
             </div>
-            '''
-            st.markdown(table_html, unsafe_allow_html=True)
+            <!-- TradingView Widget END -->
+            <style>
+                .tradingview-widget-container { background: transparent !important; }
+            </style>
+            """
+            
+            st.markdown('<div class="glass-card" style="padding:0; overflow:hidden; border:1px solid rgba(255,255,255,0.05);">', unsafe_allow_html=True)
+            components.html(tv_widget_code, height=410, scrolling=False)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Old Risk/Insight location cleared
+    
+        with cols[1]:
+            # METRIC CARDS RE-ADDED
+            d_color = "text-[#00ff88]" if daily_kz_amount >= 0 else "text-[#ff3e3e]"
+            t_color = "text-[#00ff88]" if total_kz_amount >= 0 else "text-[#ff3e3e]"
+            dkz_sign = "+" if daily_kz_amount >= 0 else ""
+            tkz_sign = "+" if total_kz_amount >= 0 else ""
+            
+            tv_tl_str = f"{total_val_tl:,.0f} TL"
+            tv_usd_str = f"${tv_usd:,.0f}"
+            tv_gold_str = f"{tv_gold:,.1f} gr Altın"
+            dkz_str = f"{dkz_sign}{daily_kz_amount:,.0f} TL"
+            tkz_str = f"{tkz_sign}{total_kz_amount:,.0f} TL"
+            avg_d_str = f"%{avg_daily:+.2f}"
+            avg_t_str = f"%{avg_total:+.2f}"
+            
+            # Updated Premium Design for Metric Cards
+            d_color_main = "#00ff88" if daily_kz_amount >= 0 else "#ff3e3e"
+            t_color_main = "#00ff88" if total_kz_amount >= 0 else "#ff3e3e"
+            
+            cards_html = (
+                f'<div style="display:flex; gap:15px; margin-bottom:25px; width:100%;">'
+                
+                # CARD 1: TOPLAM VARLIK
+                f'<div style="flex:1; background:linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border:1px solid rgba(255,255,255,0.1); border-radius:16px; padding:20px; position:relative; overflow:hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">'
+                    f'<div style="position:absolute; top:-10px; right:-5px; font-size:6rem; opacity:0.05; transform:rotate(10deg);">💼</div>'
+                    f'<div style="color:rgba(255,255,255,0.5); font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">TOPLAM VARLIK</div>'
+                    f'<div style="color:white; font-size:1.8rem; font-weight:800; letter-spacing:-0.5px; text-shadow: 0 2px 10px rgba(255,255,255,0.1);">{tv_tl_str}</div>'
+                    f'<div style="display:flex; gap:10px; margin-top:8px; font-size:0.75rem; color:rgba(255,255,255,0.4); font-weight:500;">'
+                        f'<span>{tv_usd_str}</span><span style="opacity:0.3;">|</span><span>{tv_gold_str}</span>'
+                    f'</div>'
+                f'</div>'
+                
+                # CARD 2: GÜNLÜK DEĞİŞİM
+                f'<div style="flex:1; background:linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border:1px solid rgba(255,255,255,0.1); border-bottom:3px solid {d_color_main}; border-radius:16px; padding:20px; position:relative; overflow:hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">'
+                    f'<div style="position:absolute; top:-10px; right:-5px; font-size:6rem; opacity:0.05; transform:rotate(10deg);">📈</div>'
+                    f'<div style="color:rgba(255,255,255,0.5); font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">GÜNLÜK DEĞİŞİM</div>'
+                    f'<div style="color:{d_color_main}; font-size:1.8rem; font-weight:800; letter-spacing:-0.5px; text-shadow: 0 0 25px {d_color_main}30;">{dkz_str}</div>'
+                    f'<div style="margin-top:8px;">'
+                        f'<span style="background:{d_color_main}15; color:{d_color_main}; padding:4px 10px; border-radius:8px; font-size:0.8rem; font-weight:700; border:1px solid {d_color_main}30;">{avg_d_str}</span>'
+                    f'</div>'
+                f'</div>'
+                
+                # CARD 3: TOPLAM KAR/ZARAR
+                f'<div style="flex:1; background:linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border:1px solid rgba(255,255,255,0.1); border-bottom:3px solid {t_color_main}; border-radius:16px; padding:20px; position:relative; overflow:hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">'
+                    f'<div style="position:absolute; top:-10px; right:-5px; font-size:6rem; opacity:0.05; transform:rotate(10deg);">💰</div>'
+                    f'<div style="color:rgba(255,255,255,0.5); font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">TOPLAM K/Z</div>'
+                    f'<div style="color:{t_color_main}; font-size:1.8rem; font-weight:800; letter-spacing:-0.5px; text-shadow: 0 0 25px {t_color_main}30;">{tkz_str}</div>'
+                    f'<div style="margin-top:8px;">'
+                        f'<span style="background:{t_color_main}15; color:{t_color_main}; padding:4px 10px; border-radius:8px; font-size:0.8rem; font-weight:700; border:1px solid {t_color_main}30;">{avg_t_str}</span>'
+                    f'</div>'
+                f'</div>'
+                
+                f'</div>'
+            )
+            st.markdown(cards_html, unsafe_allow_html=True)
+            st.markdown('<div class="glass-card p-6">', unsafe_allow_html=True)
+            # Custom Header with st.columns for perfect alignment
+            h_cols = st.columns([3.5, 2.5, 2, 2, 1])
+            headers = ["PORTFÖY ADI", "TOPLAM DEĞER", "GÜNLÜK K/Z", "TOPLAM K/Z", ""]
+            for i, h_text in enumerate(headers):
+                with h_cols[i]:
+                    st.markdown(f'<div style="color: rgba(255, 255, 255, 0.4); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 10px 0;">{h_text}</div>', unsafe_allow_html=True)
+            
+            st.markdown('<div style="border-bottom: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 10px;"></div>', unsafe_allow_html=True)
+    
+            
+            # Sort portfolios by value (largest first) and show all, gray out ones not in selected_p
+            # First calculate values for all portfolios for sorting
+            portfolio_values = {}
+            for p_name in all_portfolios:
+                if p_name in st.session_state.selected_p:
+                    portfolio_values[p_name] = p_metrics.get(p_name, {"val": 0})["val"]
+                else:
+                    # Calculate value for excluded portfolios
+                    exc_val = 0
+                    for h in [hd for hd in all_holdings if hd["p"] == p_name]:
+                        d = get_current_data(h["symbol"], h.get("type"))
+                        if d:
+                            t = h.get("type", "").lower()
+                            currency = "USD" if ("abd" in t or "kripto" in t or ("emtia" in t and h["symbol"].upper() not in ["ALTIN", "GÜMÜŞ"])) else "TL"
+                            rate = usd_rate if currency == "USD" else 1.0
+                            exc_val += d["price"] * h["amount"] * rate
+                    portfolio_values[p_name] = exc_val
+            
+            # Sort: included portfolios first (by value desc), then excluded (by value desc)
+            included_portfolios = sorted([p for p in all_portfolios if p in st.session_state.selected_p], 
+                                          key=lambda x: portfolio_values.get(x, 0), reverse=True)
+            excluded_portfolios = sorted([p for p in all_portfolios if p not in st.session_state.selected_p], 
+                                          key=lambda x: portfolio_values.get(x, 0), reverse=True)
+            sorted_portfolios = included_portfolios + excluded_portfolios
+            
+            for p_name in sorted_portfolios:
+                m = p_metrics.get(p_name, {"val": 0, "cost": 0, "prev": 0})
+                is_included = p_name in st.session_state.selected_p
+                
+                # Calculate portfolio value for all portfolios
+                if not is_included:
+                    # Recalculate for excluded portfolios
+                    p_holdings_fixed = [h for h in all_holdings if h["p"] == p_name]
+                    exc_val = 0
+                    exc_cost = 0
+                    exc_prev = 0
+                    for h in p_holdings_fixed:
+                        d = get_current_data(h["symbol"], h.get("type"))
+                        if d:
+                            cat_idx, currency, cat_emoji = get_asset_details(h["symbol"], h.get("type", ""))
+                            rate = usd_rate if currency == "USD" else 1.0
+                            exc_val += d["price"] * h["amount"] * rate
+                            exc_cost += h["cost"] * h["amount"] * rate
+                            exc_prev += d["prev_close"] * h["amount"] * rate
+                    m = {"val": exc_val, "cost": exc_cost, "prev": exc_prev}
+                
+                if True:  # Show all portfolios
+                    pt = (m["val"]/m["cost"]-1)*100 if m["cost"] else 0
+                    pd = (m["val"]/m["prev"]-1)*100 if m.get("prev") and m["prev"] > 0 else 0
+                    
+                    total_kz_tl = m["val"] - m["cost"]
+                    daily_kz_tl = m["val"] - m["prev"]
+                    
+                    t_sign = "+" if total_kz_tl >= 0 else ""
+                    d_sign = "+" if daily_kz_tl >= 0 else ""
+                    
+                    if is_included:
+                        # Normal styling
+                        name_color = "white"
+                        val_color = "white"
+                        icon_color = "#00f2ff"
+                        t_cls = "text-glow-green" if pt > 0 else ("text-glow-red" if pt < 0 else "")
+                        status_badge = ""
+                    else:
+                        # Muted styling for excluded
+                        name_color = "rgba(255,255,255,0.25)"
+                        val_color = "rgba(255,255,255,0.2)"
+                        icon_color = "rgba(255,255,255,0.1)"
+                        t_cls = ""
+                        status_badge = '<span style="background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.3); font-size:0.6rem; padding:2px 6px; border-radius:4px; margin-left:8px; border:1px solid rgba(255,255,255,0.05);">Dahil değil</span>'
+                    
+                    rc = st.columns([3.5, 2.5, 2, 2, 1])
+                    with rc[0]: 
+                        st.markdown(f'<div style="line-height:20px; padding: 10px 0 10px 15px; color:{name_color}; font-size:0.85rem;"><i class="fas fa-folder" style="color:{icon_color}; margin-right:8px;"></i>{p_name}{status_badge}</div>', unsafe_allow_html=True)
+                    with rc[1]: 
+                        val_display = f"{m['val']:,.0f} TL" if m["val"] > 0 else "—"
+                        st.markdown(f'<div style="line-height:40px; color:{val_color}; font-size:0.85rem;">{val_display}</div>', unsafe_allow_html=True)
+                    with rc[2]: 
+                        d_cls = "text-glow-green" if daily_kz_tl > 0 else ("text-glow-red" if daily_kz_tl < 0 else "") if is_included else ""
+                        d_opacity = "1" if is_included else "0.2"
+                        st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem; color:{val_color}; opacity:{d_opacity};" class="{d_cls}">%{pd:.1f}<br><span style="font-size:0.7rem; opacity:0.6;">{d_sign}{daily_kz_tl:,.0f} TL</span></div>', unsafe_allow_html=True)
+                    with rc[3]: 
+                        t_cls = "text-glow-green" if total_kz_tl > 0 else ("text-glow-red" if total_kz_tl < 0 else "") if is_included else ""
+                        t_opacity = "1" if is_included else "0.2"
+                        st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem; color:{val_color}; opacity:{t_opacity};" class="{t_cls}">%{pt:.1f}<br><span style="font-size:0.7rem; opacity:0.6;">{t_sign}{total_kz_tl:,.0f} TL</span></div>', unsafe_allow_html=True)
+                    with rc[4]: 
+                        if st.button("👁️", key=f"vp_{p_name}"):
+                            if is_included:
+                                pl = [h for h in detailed_list if h["Portföy"] == p_name]
+                            else:
+                                # Build detailed list for excluded portfolio
+                                pl = []
+                                excluded_holdings = [h for h in all_holdings if h["p"] == p_name]
+                                for h in excluded_holdings:
+                                    d = get_current_data(h["symbol"], h.get("type"))
+                                    if d:
+                                        cat_idx, currency, cat_emoji = get_asset_details(h["symbol"], h.get("type", ""))
+                                        pl.append({
+                                            "Emoji": cat_emoji, "Varlık": h["symbol"], "Portföy": p_name,
+                                            "Adet": h["amount"], "Maliyet": h["cost"], "T_Maliyet": h["cost"]*h["amount"],
+                                            "Güncel": d["price"], "Deger": d["price"]*h["amount"], 
+                                            "Gunluk_KZ": (d["price"] - d["prev_close"])*h["amount"],
+                                            "Toplam_KZ": (d["price"] - h["cost"])*h["amount"], 
+                                            "Günlük (%)": (d["price"]/d["prev_close"]-1)*100,
+                                            "Toplam (%)": (d["price"]/h["cost"]-1)*100, "Para": currency
+                                        })
+                            portfolio_details_dialog(p_name, pl)
+    
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+            st.markdown('<div style="margin-top:30px; margin-bottom:15px; display:flex; align-items:center; gap:10px;"><i class="fas fa-chart-pie" style="color:#00f2ff;"></i><span style="color:white; font-weight:600; font-size:1rem;">Varlık Dağılımı</span></div>', unsafe_allow_html=True)
+            st.markdown('<div class="glass-card p-6">', unsafe_allow_html=True)
+            
+            # Header for categories
+            # Custom Header for Asset Distribution
+            c_h_cols = st.columns([2.5, 2, 2, 1.2, 1.3, 1])
+            c_headers = ["KATEGORİ", "MALİYET", "DEĞER", "GÜNLÜK", "TOPLAM", ""]
+            for i, h_text in enumerate(c_headers):
+                with c_h_cols[i]:
+                    st.markdown(f'<div style="color: rgba(255, 255, 255, 0.4); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 10px 0;">{h_text}</div>', unsafe_allow_html=True)
+            
+            st.markdown('<div style="border-bottom: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 10px;"></div>', unsafe_allow_html=True)
+    
+    
+            sorted_categories = sorted(categories, key=lambda x: x["val_tl"], reverse=True)
+            for c in sorted_categories:
+                if c['val_tl'] > 0:
+                    v_str = f"{c['val']:,.0f} {c['currency']}"
+                    c_str = f"{c['cost']:,.0f} {c['currency']}"
+                    d_val = f"%{c['daily']:.1f}"
+                    t_val = f"%{c['change']:.1f}"
+                    
+                    # Calculate amounts
+                    d_amt = c['val'] - c['prev']
+                    t_amt = c['val'] - c['cost']
+                    d_sign = "+" if d_amt > 0 else ""
+                    t_sign = "+" if t_amt > 0 else ""
+                    
+                    d_cls = "text-glow-green" if c["daily"] > 0 else ("text-glow-red" if c["daily"] < 0 else "")
+                    t_cls = "text-glow-green" if c["change"] > 0 else ("text-glow-red" if c["change"] < 0 else "")
+                    
+                    c_cols = st.columns([2.5, 2, 2, 1.2, 1.3, 1])
+                    with c_cols[0]:
+                        st.markdown(f'<div style="line-height:40px; color:white; font-weight:500; font-size:0.85rem; padding-left:15px;">{c["emoji"]} {c["name"]}</div>', unsafe_allow_html=True)
+                    with c_cols[1]:
+                        st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem;">{c_str}</div>', unsafe_allow_html=True)
+                    with c_cols[2]:
+                        st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem; font-weight:600;">{v_str}</div>', unsafe_allow_html=True)
+                    with c_cols[3]:
+                        st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem;" class="{d_cls}">{d_val}<br><span style="font-size:0.7rem; opacity:0.6;">{d_sign}{d_amt:,.0f} {c["currency"]}</span></div>', unsafe_allow_html=True)
+                    with c_cols[4]:
+                        st.markdown(f'<div style="line-height:20px; padding: 5px 0; font-size:0.85rem;" class="{t_cls}">{t_val}<br><span style="font-size:0.7rem; opacity:0.6;">{t_sign}{t_amt:,.0f} {c["currency"]}</span></div>', unsafe_allow_html=True)
+                    with c_cols[5]:
+                        if st.button("👁️", key=f"vc_{c['name']}"):
+                            # Filter detailed_list by category name logic
+                            cat_assets = [h for h in detailed_list if c["emoji"] in h.get("Emoji", "")]
+                            if not cat_assets:
+                                cat_assets = [h for h in detailed_list if h.get("Emoji") == c["emoji"]]
+                            portfolio_details_dialog(f"{c['emoji']} {c['name']} Varlıkları", cat_assets)
+                            
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+            # ALL ASSETS
+            if "asset_sort_by" not in st.session_state:
+                st.session_state.asset_sort_by = "Değer"
+            
+            # Header and Sort Controls in a single line
+            header_cols = st.columns([1, 1])
+            with header_cols[0]:
+                st.markdown('<div style="margin-top:10px; margin-bottom:15px; display:flex; align-items:center; gap:10px;"><i class="fas fa-list-ul" style="color:#00f2ff;"></i><span style="color:white; font-weight:600; font-size:1rem;">Tüm Varlıklarım</span></div>', unsafe_allow_html=True)
+            
+            with header_cols[1]:
+                sort_options = {"Değer": "Deger_TL", "Günlük %": "Günlük (%)", "Toplam %": "Toplam (%)"}
+                def on_sort_change():
+                    st.session_state.asset_sort_by = st.session_state.asset_sort_radio
+                st.radio("Sırala", options=list(sort_options.keys()), key="asset_sort_radio", index=list(sort_options.keys()).index(st.session_state.asset_sort_by), horizontal=True, label_visibility="collapsed", on_change=on_sort_change)
+    
+            sort_key = sort_options.get(st.session_state.asset_sort_by, "Deger")
+            dr = ""
+            sorted_detailed_list = sorted(detailed_list, key=lambda x: x.get(sort_key, 0), reverse=True)
+            for h in sorted_detailed_list:
+                curr = h.get("Para", "TL")
+                g_kz = h.get("Gunluk_KZ", 0)
+                t_kz = h.get("Toplam_KZ", 0)
+                g_cls = "text-glow-green" if g_kz > 0 else ("text-glow-red" if g_kz < 0 else "")
+                t_cls = "text-glow-green" if t_kz > 0 else ("text-glow-red" if t_kz < 0 else "")
+                val_style = "font-weight:600;" if sort_key == "Deger_TL" else ""
+                g_row_cls = "background: rgba(0, 242, 255, 0.03);" if sort_key == "Günlük (%)" else ""
+                t_row_cls = "background: rgba(0, 242, 255, 0.03);" if sort_key == "Toplam (%)" else ""
+                
+                # Pre-format values to avoid f-string syntax errors
+                maliyet_str = f"{h['Maliyet']:,.2f}"
+                tmaliyet_str = f"{h['T_Maliyet']:,.2f}"
+                guncel_str = f"{h['Güncel']:,.2f}"
+                deger_str = f"{h['Deger']:,.2f}"
+                gunluk_yuzde_str = f"%{h['Günlük (%)']:.2f}"
+                toplam_yuzde_str = f"%{h['Toplam (%)']:.2f}"
+                g_kz_str = f"({g_kz:,.0f})"
+                t_kz_str = f"({t_kz:,.0f})"
+    
+                dr += f'''<tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                    <td style="color:white !important; font-weight:500; padding:12px 15px;">{h['Emoji']} {h['Varlık']}<br><span style="font-size:0.7rem; color:#00f2ff;">{h['Portföy']}</span></td>
+                    <td style="color:white !important; padding:12px 15px;">{maliyet_str} {curr}</td>
+                    <td style="color:white !important; padding:12px 15px;">{tmaliyet_str} {curr}</td>
+                    <td style="color:white !important; padding:12px 15px;">{guncel_str} {curr}</td>
+                    <td style="color:white !important; {val_style} padding:12px 15px;">{deger_str} {curr}</td>
+                    <td class="{g_cls}" style="{g_row_cls} padding:12px 15px;">{gunluk_yuzde_str}<br><span style="font-size:0.7rem;">{g_kz_str}</span></td>
+                    <td class="{t_cls}" style="{t_row_cls} padding:12px 15px;">{toplam_yuzde_str}<br><span style="font-size:0.7rem;">{t_kz_str}</span></td>
+                </tr>'''
+            
+            if dr:
+                table_html = f'''
+                <div class="glass-card" style="padding: 10px; overflow-x: auto;">
+                    <table class="modern-table" style="width:100%; border-collapse: collapse;">
+                        <thead>
+                            <tr>
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">VARLIK</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">MALİYET</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">TOPLAM ALIŞ</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">GÜNCEL</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">TOPLAM DEĞER</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem; {'border-left:1px solid rgba(0,242,255,0.2);' if sort_key == 'Günlük (%)' else ''}">GÜNLÜK K/Z</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem; {'border-left:1px solid rgba(0,242,255,0.2);' if sort_key == 'Toplam (%)' else ''}">TOPLAM K/Z</th>
+                            </tr>
+                        </thead>
+                        <tbody>{dr}</tbody>
+                    </table>
+                </div>
+                '''
+                st.markdown(table_html, unsafe_allow_html=True)
+    
+    
 
 
+    elif st.session_state.active_tab == "PORTFÖY ANALİZİ":
+        # --- GEMINI AI ANALYSIS TAB ---
+        st.markdown(f'<div style="margin-top:0px; margin-bottom:25px; display:flex; align-items:center; gap:12px;"><span>🤖</span><span style="color:white; font-weight:700; font-size:1.4rem; letter-spacing:-0.5px;">Yapay Zeka Portföy Analisti</span></div>', unsafe_allow_html=True)
+        
+        # 1. Premium AI Analysis Zone
+        st.markdown("""
+            <style>
+                .ai-master-zone {
+                    padding: 40px 0;
+                    width: 100%;
+                    max-width: 900px;
+                    margin: 0 auto;
+                    text-align: center;
+                }
+                .ai-master-zone div[data-testid="stButton"] button {
+                    background: linear-gradient(135deg, rgba(0, 242, 255, 0.2) 0%, rgba(10, 15, 20, 0.95) 100%) !important;
+                    border: 2px solid rgba(0, 242, 255, 0.5) !important;
+                    border-radius: 25px !important;
+                    height: 120px !important;
+                    width: 100% !important;
+                    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.5) !important;
+                    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+                    backdrop-filter: blur(25px) !important;
+                }
+                .ai-status-card {
+                    background: rgba(255, 255, 255, 0.03);
+                    border: 1px solid rgba(0, 242, 255, 0.2);
+                    border-radius: 20px;
+                    padding: 40px;
+                    margin-bottom: 30px;
+                }
+                @keyframes pulse-ai {
+                    0% { opacity: 0.6; transform: scale(1); }
+                    50% { opacity: 1; transform: scale(1.02); }
+                    100% { opacity: 0.6; transform: scale(1); }
+                }
+                .ai-pulse-text {
+                    color: #00f2ff;
+                    font-size: 1.5rem;
+                    font-weight: 800;
+                    animation: pulse-ai 2s infinite ease-in-out;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown('<div class="ai-master-zone">', unsafe_allow_html=True)
+        
+        # Trigger analysis if coming from tab click or first time
+        should_run = False
+        if st.session_state.get("trigger_ai_analysis", False):
+            st.session_state.trigger_ai_analysis = False
+            should_run = True
+
+        if not should_run:
+            if st.button("🔄 ANALİZİ BAŞLAT / YENİLE", key="ai_analiz_tab_btn", use_container_width=True):
+                should_run = True
+
+        if should_run:
+            
+            fund_contents = {}
+            # Silent processing (no standard spinner)
+            for asset in agg_holdings:
+                a_type = str(asset.get("type", "")).lower()
+                if any(x in a_type for x in ["tefas", "fon", "bes", "oks"]):
+                    symbol = asset.get("symbol", "").upper()
+                    try:
+                        import borsapy
+                        fund = borsapy.Fund(symbol)
+                        alloc = fund.allocation
+                        if not alloc.empty:
+                            latest_date = alloc['Date'].max()
+                            latest_alloc = alloc[alloc['Date'] == latest_date]
+                            fund_contents[symbol] = latest_alloc[['asset_type', 'weight']].to_dict(orient='records')
+                    except: pass
+
+            p_data = {
+                "toplam_deger_tl": total_val_tl,
+                "toplam_deger_usd": tv_usd,
+                "gunluk_kz_tl": daily_kz_amount,
+                "toplam_kz_tl": total_kz_amount,
+                "toplam_kz_usd": total_kz_usd,
+                "risk_skoru": risk_val,
+                "guncel_usd_kuru": usd_rate,
+                "kategoriler": [{cat['name']: f"{cat['val']:,.0f} {cat['currency']} (%{cat['val_tl']/total_val_tl*100:.1f} pay)"} for cat in categories if cat['val_tl'] > 0],
+                "en_cok_yukselen": f"{sorted_detailed_list[-1]['Varlık']} (%{sorted_detailed_list[-1]['Günlük (%)']:.1f})" if detailed_list and sorted_detailed_list[-1].get("Günlük (%)", 0) > 0 else "Yok",
+                "en_cok_dusende": f"{sorted_detailed_list[0]['Varlık']} (%{sorted_detailed_list[0]['Günlük (%)']:.1f})" if detailed_list and sorted_detailed_list[0].get("Günlük (%)", 0) < 0 else "Yok",
+                "fon_icerikleri_ozeti": fund_contents
+            }
+            ai_analysis_dialog(str(p_data))
+        st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state.active_tab == "STRATEJİLERİM":
     st.markdown("""
@@ -1846,11 +1987,12 @@ elif st.session_state.active_tab == "STRATEJİLERİM":
                         else:
                             a_cond = "Fiyat Altında"
                             
-                        if add_alert(a_sym, a_target, a_cond, a_type, initial_price=curr_p, action_type=a_action):
-                            st.success(f"✅ {a_sym} {a_action} stratejisi kuruldu! (Hedef: {a_target:,.2f})")
+                        success, msg = add_alert(a_sym, a_target, a_cond, a_type, initial_price=curr_p, action_type=a_action)
+                        if success:
+                            st.success(f"✅ {msg}")
                             time.sleep(1)
                             st.rerun()
-                        else: st.error("❌ Veritabanı hatası.")
+                        else: st.error(f"❌ {msg}")
                     else: st.error(f"❌ '{a_sym}' bulunamadı.")
                 else: st.warning("⚠️ Lütfen tüm alanları doldurun.")
 

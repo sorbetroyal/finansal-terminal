@@ -18,6 +18,61 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+def get_db():
+    """Returns an authenticated Supabase client for the current session."""
+    token = st.session_state.get("access_token")
+    if token:
+        # Inject the user's token into the postgrest client for RLS
+        supabase.postgrest.auth(token)
+    return supabase
+
+# ==================== SETTINGS FUNCTIONS ====================
+
+def get_user_setting(key, default=None):
+    """Retrieve a setting value from Supabase for the current user."""
+    user_id = get_user_id()
+    if not user_id:
+        return default
+    try:
+        db = get_db()
+        response = db.table("user_settings").select("setting_value").eq("user_id", user_id).eq("setting_key", key).execute()
+        if response.data:
+            return response.data[0]["setting_value"]
+    except Exception as e:
+        print(f"Error getting setting {key}: {e}")
+    return default
+
+def save_user_setting(key, value):
+    """Save or update a setting value in Supabase for the current user."""
+    user_id = get_user_id()
+    if not user_id:
+        return False, "Kullanıcı oturumu bulunamadı."
+    try:
+        db = get_db()
+        # Check if setting exists
+        existing = db.table("user_settings").select("id").eq("user_id", user_id).eq("setting_key", key).execute()
+        if existing.data:
+            db.table("user_settings").update({"setting_value": value}).eq("id", existing.data[0]["id"]).execute()
+        else:
+            db.table("user_settings").insert({
+                "user_id": user_id,
+                "setting_key": key,
+                "setting_value": value
+            }).execute()
+        return True, "Başarıyla kaydedildi."
+    except Exception as e:
+        err_msg = str(e)
+        print(f"Error saving setting {key}: {err_msg}")
+        return False, err_msg
+
+def get_gemini_api_key():
+    """Get the user's Gemini API key from Supabase."""
+    return get_user_setting("gemini_api_key")
+
+def save_gemini_api_key(api_key):
+    """Save the user's Gemini API key to Supabase."""
+    return save_user_setting("gemini_api_key", api_key)
+
 def is_gold_tl_asset(symbol):
     """Checks if an asset symbol refers to a gold/silver commodity denominated in TL."""
     if not symbol: return False
@@ -1112,48 +1167,20 @@ def save_selected_portfolios(selected_list):
 ALERTS_FILE = os.path.join(os.path.dirname(__file__), "alerts.json")
 
 def load_alerts():
-    """Load alerts for the current user from Supabase with local-to-cloud sync."""
+    """Load alerts for the current user strictly from Supabase."""
     user_id = get_user_id()
-    local_data = []
-    
-    # 1. Load local results first for possible migration
-    try:
-        if os.path.exists(ALERTS_FILE):
-            with open(ALERTS_FILE, "r", encoding="utf-8") as f:
-                temp_local = json.load(f)
-                local_data = temp_local if isinstance(temp_local, list) else []
-    except:
-        pass
+    if not user_id:
+        return []
 
     try:
-        if user_id:
-            # 2. Try to sync local alerts to Supabase if they are not there
-            if local_data:
-                try:
-                    # Check if we should migrate (simple way: check if local has any)
-                    for al in local_data:
-                        # Only migrate if user_id is missing or matches current
-                        if not al.get("user_id") or al.get("user_id") == user_id:
-                            # Check if already exists in Supabase to avoid duplicates
-                            existing = supabase.table("alerts").select("id").eq("id", al["id"]).execute()
-                            if not existing.data:
-                                al["user_id"] = user_id # Ensure it belongs to current user
-                                supabase.table("alerts").insert(al).execute()
-                    
-                    # Optional: Clean local file after successful sync or mark as synced
-                    # For safety, we keep them but prioritize cloud
-                except Exception as sync_e:
-                    print(f"Alert sync error: {sync_e}")
-
-            # 3. Always return current Supabase data as source of truth
-            response = supabase.table("alerts").select("*").eq("user_id", user_id).execute()
-            if response.data:
-                return response.data
-        
-        return local_data
+        db = get_db()
+        response = db.table("alerts").select("*").eq("user_id", user_id).execute()
+        if response.data:
+            return response.data
     except Exception as e:
         print(f"Error loading alerts: {e}")
-        return local_data
+    
+    return []
 
 
 
@@ -1167,8 +1194,11 @@ def save_alerts_local(alerts):
         return False
 
 def add_alert(symbol, target_price, condition, asset_type=None, initial_price=None, action_type="STRATEJİ"):
-    """Add a new price alert/strategy."""
+    """Add a new price alert/strategy strictly to Supabase."""
     user_id = get_user_id()
+    if not user_id:
+        return False, "Strateji eklemek için giriş yapmalısınız."
+        
     alert_id = int(datetime.now().timestamp() * 1000)
     alert_data = {
         "id": alert_id,
@@ -1184,38 +1214,28 @@ def add_alert(symbol, target_price, condition, asset_type=None, initial_price=No
     }
     
     try:
-        # Try Supabase first
-        if user_id:
-            supabase.table("alerts").insert(alert_data).execute()
-            return True
-        else:
-            # Local fallback
-            alerts = load_alerts()
-            alerts.append(alert_data)
-            return save_alerts_local(alerts)
+        db = get_db()
+        db.table("alerts").insert(alert_data).execute()
+        return True, "Strateji başarıyla eklendi."
     except Exception as e:
         print(f"Error adding alert: {e}")
-        # Fallback to local
-        try:
-            alerts = load_alerts()
-            alerts.append(alert_data)
-            return save_alerts_local(alerts)
-        except:
-            return False
+        return False, f"Hata: {str(e)}"
 
 
 
 def delete_alert(alert_id):
-    """Delete an alert."""
+    """Delete an alert strictly from Supabase."""
+    user_id = get_user_id()
+    if not user_id:
+        return False
+        
     try:
-        # Try to delete by ID from Supabase
-        supabase.table("alerts").delete().eq("id", alert_id).execute()
+        db = get_db()
+        db.table("alerts").delete().eq("id", alert_id).eq("user_id", user_id).execute()
         return True
-    except:
-        # Fallback to local
-        alerts = load_alerts()
-        new_alerts = [a for a in alerts if str(a.get("id")) != str(alert_id)]
-        return save_alerts_local(new_alerts)
+    except Exception as e:
+        print(f"Error deleting alert: {e}")
+        return False
 
 def check_alerts():
     """Check all active alerts against current prices and update Supabase."""

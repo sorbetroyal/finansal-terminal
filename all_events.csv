@@ -1,0 +1,82 @@
+Date,Time,Country,Importance,Event,Actual,Forecast,Previous,Period
+2026-01-28,00:30,ABD,low,API Petrol Stokları Net Değişim (23 Ocak),15.000,,-176.000,23 Ocak
+2026-01-28,00:30,ABD,low,API Benzin Stokları Net Değişim (23 Ocak),-415.000,,6.21mln,23 Ocak
+2026-01-28,00:30,ABD,low,API Damıtılmış Ürün Stokları Net Değişim (23 Ocak),2.01mn,,-33.000,23 Ocak
+2026-01-28,00:30,ABD,low,API Cushing Petrol Stokları Net Değişim (23 Ocak),-92.000,,1.2mln,23 Ocak
+2026-01-28,15:00,ABD,low,MBA Piyasa Endeksi (21 Ocak),"363,3",,"397,2",21 Ocak
+2026-01-28,15:00,ABD,low,MBA Piyasa Endeksi (Haftalık) (21 Ocak),"-%8,5",,"%14,1",21 Ocak
+2026-01-28,15:00,ABD,low,MBA Satınalma Endeksi (21 Ocak),"193,3",,"194,1",21 Ocak
+2026-01-28,15:00,ABD,low,MBA Satınalma Endeksi (Haftalık) (21 Ocak),"-%0,4",,"%5,1",21 Ocak
+2026-01-28,15:00,ABD,low,MBA Refinansman Endeksi (21 Ocak),"1332,2",,"1580,8",21 Ocak
+2026-01-28,15:00,ABD,low,MBA Refinansman Endeksi (Haftalık) (21 Ocak),"-%15,7",,"%20,4",21 Ocak
+2026-01-28,15:00,ABD,low,MBA 30 Yıllık Mortgage Faiz Oranı (21 Ocak),"%6,24",,"%6,15",21 Ocak
+2026-01-28,15:00,ABD,low,MBA 15 Yıllık Mortgage Faiz Oranı (21 Ocak),"%5,64",,"%5,55",21 Ocak
+2026-01-28,15:00,ABD,low,MBA 5 Yıllık ARM Faiz Oranı (21 Ocak),"%5,56",,"%5,42",21 Ocak
+2026-01-28,15:00,ABD,low,MBA 30 Yıllık Jumbo Faiz Oranı (21 Ocak),"%6,34",,"%6,39",21 Ocak
+2026-01-28,18:30,ABD,mid,DOE Petrol Stokları (Varil) (23 Ocak),,,,23 Ocak
+2026-01-28,18:30,ABD,mid,DoE Petrol Stokları Net Değişim (23 Ocak),,,"3,6mln",23 Ocak
+2026-01-28,18:30,ABD,mid,DoE Benzin Stokları (Varil) (23 Ocak),,,,23 Ocak
+2026-01-28,18:30,ABD,mid,DoE Benzin Stokları Net Değişim (23 Ocak),,,"5,98mln",23 Ocak
+2026-01-28,18:30,ABD,mid,DoE Damıtılmış Ürün Stokları (Varil) (23 Ocak),,,,23 Ocak
+2026-01-28,18:30,ABD,mid,DoE Damıtılmış Ürün Stokları Net Değişim (23 Ocak),,,"3,35mln",23 Ocak
+2026-01-28,18:30,ABD,mid,DoE Cushing Petrol Merkezi Stokları (Varil) (23 Ocak),,,,23 Ocak
+2026-01-28,18:30,ABD,mid,DoE Cushing Stokları Net Değişim (23 Ocak),,,"1,48mln",23 Ocak
+2026-01-28,18:30,ABD,mid,DoE Kapasite Kullanım Oranı (23 Ocak),,,"%93,3",23 Ocak
+2026-01-28,22:00,ABD,high,Fed Maksimum Gösterge Faiz Oranı (Ocak),,,"%3,75",Ocak
+2026-01-28,22:00,ABD,high,Fed Minimum Gösterge Faiz Oranı (Ocak),,,"%3,50",Ocak
+2026-01-28,22:00,ABD,high,Fed İskonto Faiz Oranı (Ocak),,,"%3,75",Ocak
+2026-01-28,22:00,ABD,high,Fed 2026 GSYH Beklentisi (Ocak),,,"%1,7",Ocak
+2026-01-28,22:00,ABD,high,Fed 2026 GSYH Beklentisi (Ocak),,,"%2,3",Ocak
+2026-01-28,22:00,ABD,high,Fed 2027 GSYH Beklentisi (Ocak),,,"%2,0",Ocak
+2026-01-28,22:00,ABD,high,Fed Uzun Dönem Büyüme Beklentisi (Ocak),,,"%1,8",Ocak
+2026-01-28,22:00,ABD,high,Fed 2025 İşsizlik Beklentisi (Ocak),,,"%4,5",Ocak
+2026-01-28,22:00,ABD,high,Fed 2026 İşsizlik Beklentisi (Ocak),,,"%4,4",Ocak
+2026-01-28,22:00,ABD,high,Fed 2027 İşsizlik Beklentisi (Ocak),,,"%4,2",Ocak
+2026-01-28,22:00,ABD,high,Fed Uzun Dönem İşsizlik Beklentisi (Ocak),,,"%4,2",Ocak
+2026-01-28,22:00,ABD,high,Fed 2025 PCE Beklentisi (Ocak),,,"%2,9",Ocak
+2026-01-28,22:00,ABD,high,Fed 2026 PCE Beklentisi (Ocak),,,"%2,4",Ocak
+2026-01-28,22:00,ABD,high,Fed 2027 PCE Beklentisi (Ocak),,,"%2,1",Ocak
+2026-01-28,22:00,ABD,high,Fed Uzun Dönem PCE Beklentisi (Ocak),,,"%2,0",Ocak
+2026-01-28,22:00,ABD,high,Fed 2025 Çekirdek PCE Beklentisi (Ocak),,,"%3,0",Ocak
+2026-01-28,22:00,ABD,high,Fed 2026 Çekirdek PCE Beklentisi (Ocak),,,"%2,6",Ocak
+2026-01-28,22:00,ABD,high,Fed 2027 Çekirdek PCE Beklentisi (Ocak),,,"%2,1",Ocak
+2026-01-28,22:00,ABD,high,Fed 2026 Medyan Faiz Tahmini (Ocak),,,"%3,6",Ocak
+2026-01-28,22:00,ABD,high,Fed 2027 Medyan Faiz Tahmini (Ocak),,,"%3,4",Ocak
+2026-01-28,22:00,ABD,high,Fed 2028 Medyan Faiz Tahmini (Ocak),,,"%3,1",Ocak
+2026-01-28,22:00,ABD,high,Fed Uzun Dönem Medyan Faiz Tahmini (Ocak),,,%3.0,Ocak
+2026-01-29,10:00,Türkiye,high,İşsizlik Oranı (Aralık),,,"%8,6",Aralık
+2026-01-29,10:00,Türkiye,high,İstihdam Oranı (Aralık),,,"%49,2",Aralık
+2026-01-29,10:00,Türkiye,high,İşgücüne Katılma Oranı (Aralık),,,"%53,8",Aralık
+2026-01-29,10:00,Türkiye,high,Genç Nüfusta İşsizlik Oranı (Aralık),,,"%15,4",Aralık
+2026-01-29,10:00,Türkiye,high,Atıl İş Gücü Oranı (Aralık),,,"%29,1",Aralık
+2026-01-29,10:00,Türkiye,mid,Ekonomik Güven Endeksi (Ocak),,,"99,5",Ocak
+2026-01-29,10:00,Türkiye,mid,Ekonomik Güven Endeksi (Aylık) (Ocak),,,"%0,0",Ocak
+2026-01-29,14:00,Türkiye,low,Toplam Krediler (TL) (23 Ocak),,,"23,75t",23 Ocak
+2026-01-29,14:00,Türkiye,low,Tüketici Kredileri (TL) (23 Ocak),,,"2,92t",23 Ocak
+2026-01-29,14:00,Türkiye,low,Bireysel Kredi Kartları (TL) (23 Ocak),,,"2,71t",23 Ocak
+2026-01-29,14:00,Türkiye,low,Kurumsal Kredi Kartları (TL) (23 Ocak),,,"831,7mlr",23 Ocak
+2026-01-29,14:00,Türkiye,low,Takipteki Alacaklar (TL) (23 Ocak),,,"610,77mlr",23 Ocak
+2026-01-29,14:00,Türkiye,low,Toplam Menkul Değerler (TL) (23 Ocak),,,"7,09t",23 Ocak
+2026-01-29,14:00,Türkiye,low,Mevduat (TL) (23 Ocak),,,"27,47t",23 Ocak
+2026-01-29,14:00,Türkiye,low,Kur Korumalı TL Mevduat ve Katılma Hesapları (23 Ocak),,,"4,76mlr",23 Ocak
+2026-01-29,14:30,Türkiye,low,Merkez Bankası Rezervleri ($) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,Döviz Rezervleri ($) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,Altın Rezervleri ($) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,Net Uluslararası Rezervler ($) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,M1 (TL) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,M2 (TL) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,M3 (TL) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,Toplam Kredi Hacmi (TL) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,Toplam Menkul Değerler (TL) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,Toplam Mevduat (TL) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,Türk Lirası Mevduatı (TL) (23 Ocak),,,,23 Ocak
+2026-01-29,14:30,Türkiye,low,Yabancı Para Mevduatı ($) (23 Ocak),,,,23 Ocak
+2026-01-29,16:30,ABD,high,Dış Ticaret Dengesi ($) (Kasım),,,"-29,4mlr",Kasım
+2026-01-29,16:30,ABD,high,İhracat ($) (Kasım),,,302.0mlr,Kasım
+2026-01-29,16:30,ABD,high,İhracat (Yıllık) (Kasım),,,"%2,6",Kasım
+2026-01-29,16:30,ABD,high,İthalat ($) (Kasım),,,"331,4mlr",Kasım
+2026-01-29,16:30,ABD,high,İthalat (Yıllık) (Kasım),,,"-%3,2",Kasım
+2026-01-29,16:30,ABD,mid,İşsizlik Başvuruları (24 Ocak),,,"200,000",24 Ocak
+2026-01-29,16:30,ABD,mid,İşsizlik Başvuruları 4 Haftalık Ortalama (24 Ocak),,,201.500,24 Ocak
+2026-01-29,16:30,ABD,mid,Devam Eden İşsizlik Başvuruları (24 Ocak),,,1.849.000,24 Ocak
+2026-01-29,16:30,ABD,mid,Devam Eden İşsizlik Başvuruları 4 Haftalık Ort. (24 Ocak),,,,24 Ocak
