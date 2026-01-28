@@ -29,15 +29,25 @@ def get_crypto_fng():
 
 @st.dialog("Portföy İçeriği", width="large")
 def portfolio_details_dialog(p_name, p_list):
-    # Local styling for table specifics - removing global td override
+    # Aggressive CSS to ensure high-contrast colors and visibility
     st.markdown("""
         <style>
-            div[role="dialog"] [data-testid="stMarkdownContainer"] table { border-collapse: collapse; width: 100%; }
-            div[role="dialog"] th { color: rgba(255,255,255,0.4) !important; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1) !important; text-align: left; padding: 15px; font-size: 0.75rem; }
+            /* Reset any transparency or dimming */
+            div[role="dialog"] * { opacity: 1.0 !important; }
+            
+            /* Table Styling */
+            .p-details-table { width: 100%; border-collapse: collapse; background-color: #0b0e14; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); }
+            .p-details-table th { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5) !important; padding: 15px; text-align: left; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+            .p-details-table td { padding: 15px; color: #FFFFFF !important; font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            
+            /* Neon Profit/Loss */
+            .neon-green-text { color: #00FF00 !important; font-weight: 900 !important; text-shadow: 0 0 8px rgba(0, 255, 0, 0.6) !important; filter: drop-shadow(0 0 2px black); }
+            .neon-red-text { color: #FF0000 !important; font-weight: 900 !important; text-shadow: 0 0 8px rgba(255, 0, 0, 0.6) !important; filter: drop-shadow(0 0 2px black); }
+            .kz-sub { font-size: 0.75rem; font-weight: 400; opacity: 0.9 !important; margin-top: 2px; }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<h3 style='color:#00f2ff !important; font-size:1.3rem; font-weight:700; margin-bottom:20px;'>📂 {p_name} İçeriği</h3>", unsafe_allow_html=True)
+    st.markdown(f"<h3 style='color:#00f2ff !important; font-size:1.3rem; font-weight:700; margin-bottom:20px; text-shadow: 0 0 10px rgba(0,242,255,0.3);'>📂 {p_name} İçeriği</h3>", unsafe_allow_html=True)
     
     if not p_list:
         st.info("Bu portföyde henüz varlık bulunmuyor.")
@@ -46,38 +56,39 @@ def portfolio_details_dialog(p_name, p_list):
     rows = ""
     for h in p_list:
         curr = h.get("Para", "TL")
-        t_val = h.get('Toplam (%)', 0)
-        t_amt = h.get('Toplam_KZ', 0)
-        d_val = h.get('Günlük (%)', 0)
-        d_amt = h.get('Gunluk_KZ', 0)
+        # Handle decimal rounding for metrics
+        t_val = float(h.get('Toplam (%)', 0))
+        t_amt = float(h.get('Toplam_KZ', 0))
+        d_val = float(h.get('Günlük (%)', 0))
+        d_amt = float(h.get('Gunluk_KZ', 0))
         
-        # Colors - using explicit neon colors
-        d_color = "#00ff88" if d_val > 0 else ("#ff3e3e" if d_val < 0 else "#FFFFFF")
-        t_color = "#00ff88" if t_val > 0 else ("#ff3e3e" if t_val < 0 else "#FFFFFF")
+        # Determine CSS classes
+        d_cls = "neon-green-text" if d_val > 0 else ("neon-red-text" if d_val < 0 else "")
+        t_cls = "neon-green-text" if t_val > 0 else ("neon-red-text" if t_val < 0 else "")
         
         d_sign = "+" if d_val > 0 else ""
         t_sign = "+" if t_val > 0 else ""
         
-        rows += f"""<tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:600; font-size:0.9rem;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Adet', 0):,.2f}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Maliyet', 0):,.2f} {curr}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Güncel', 0):,.2f} {curr}</td>
-            <td style="padding:15px; color:#FFFFFF !important; font-weight:500; font-size:0.9rem;">{h.get('Deger', 0):,.2f} {curr}</td>
-            <td style="padding:15px; font-weight:800; font-size:0.95rem; color:{d_color} !important; text-shadow: 0 0 10px {d_color}40;">
+        rows += f"""<tr>
+            <td style="font-weight:700;">{h.get('Emoji', '💰')} {h.get('Varlık', '-')}</td>
+            <td style="color:rgba(255,255,255,0.7) !important;">{h.get('Adet', 0):,.2f}</td>
+            <td style="color:rgba(255,255,255,0.7) !important;">{h.get('Maliyet', 0):,.2f} {curr}</td>
+            <td>{h.get('Güncel', 0):,.2f} {curr}</td>
+            <td style="font-weight:600;">{h.get('Deger', 0):,.2f} {curr}</td>
+            <td class="{d_cls}">
                 %{d_val:.2f}<br>
-                <div style="font-size:0.75rem; font-weight:400; opacity:0.9;">({d_sign}{d_amt:,.2f} {curr})</div>
+                <div class="kz-sub">({d_sign}{d_amt:,.2f} {curr})</div>
             </td>
-            <td style="padding:15px; font-weight:800; font-size:0.95rem; color:{t_color} !important; text-shadow: 0 0 10px {t_color}40;">
+            <td class="{t_cls}">
                 %{t_val:.1f}<br>
-                <div style="font-size:0.75rem; font-weight:400; opacity:0.9;">({t_sign}{t_amt:,.0f} {curr})</div>
+                <div class="kz-sub">({t_sign}{t_amt:,.0f} {curr})</div>
             </td>
         </tr>"""
 
     st.markdown(f"""
-    <div style="background-color: #0b111a; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; margin-bottom: 20px;">
-        <table style="width:100%; border-collapse:collapse; background-color: transparent;">
-            <thead style="background:rgba(255,255,255,0.03);">
+    <div style="margin-bottom: 20px;">
+        <table class="p-details-table">
+            <thead>
                 <tr>
                     <th>VARLIK</th>
                     <th>ADET</th>
