@@ -103,6 +103,8 @@ def get_asset_details(symbol, asset_type):
         cat_idx = 6; currency = "TL"; emoji = "📉"
     elif "bes" in t or "oks" in t:
         cat_idx = 7; currency = "TL"; emoji = "🐖"
+    elif "nakit" in t:
+        cat_idx = 8; currency = "TL"; emoji = "💵"
     else:
         # Check if it's a BIST stock (fallback)
         if "bist" in t:
@@ -213,6 +215,10 @@ def get_current_data(symbol, asset_type=None):
     a_type = str(asset_type).lower() if asset_type else ""
     s_upper = str(symbol).upper()
     
+    # NAKIT HANDLING
+    if "nakit" in a_type:
+        return {"price": 1.0, "prev_close": 1.0, "change_pct": 0.0}
+
     # Standardize symbol based on type
     std_symbol = str(symbol).strip()
     if "bist" in a_type and not std_symbol.endswith(".IS"): std_symbol = f"{std_symbol}.IS"

@@ -335,14 +335,26 @@ def asset_management_dialog():
         with col1:
             selected_portfolio = st.selectbox("📁 Portföy Seçin", all_p, key="add_portfolio")
             asset_type = st.selectbox("📊 Varlık Tipi", [
-                "bist hisse", "abd hisse/etf", "tefas fon", "kripto", "döviz", "emtia", "eurobond", "bes/oks"
+                "bist hisse", "abd hisse/etf", "tefas fon", "kripto", "döviz", "emtia", "eurobond", "bes/oks", "nakit"
             ], key="add_type")
-            asset_symbol = st.text_input("🔤 Varlık Sembolü", key="add_symbol").strip().upper()
+            
+            # Helper for Cash
+            ph_text = "🔤 Varlık Sembolü"
+            if asset_type == "nakit":
+                 ph_text = "Tanım (Örn: TL, Kasa)"
+                 
+            asset_symbol = st.text_input(ph_text, key="add_symbol").strip().upper()
         
         with col2:
-            asset_amount = st.number_input("🔢 Adet", min_value=0.0, value=None, placeholder="1.0", step=0.0001, format="%.4f", key="add_amount")
+            asset_amount = st.number_input("🔢 Adet (Miktar)", min_value=0.0, value=None, placeholder="1.0", step=0.0001, format="%.4f", key="add_amount")
             # The widget now takes its value directly from the session_state key modified above
-            asset_cost = st.number_input("💰 Birim Maliyet", min_value=0.0, value=None, placeholder="0.00", step=0.0001, format="%.4f", key="add_cost_widget")
+            
+            # Auto-set cost for Cash
+            val_cost = None
+            if asset_type == "nakit":
+                 val_cost = 1.0
+            
+            asset_cost = st.number_input("💰 Birim Maliyet", min_value=0.0, value=val_cost, placeholder="1.00", step=0.0001, format="%.4f", key="add_cost_widget")
 
             purchase_date = st.date_input("📅 Alış Tarihi", value=datetime.now(), key="add_date")
         
@@ -1206,7 +1218,8 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
         {"name": "Döviz", "val": 0, "val_tl": 0, "change": 0, "daily": 0, "currency": "TL", "icon": "fa-coins", "emoji": "💵", "cost": 0, "prev": 0},
         {"name": "Emtia", "val": 0, "val_tl": 0, "change": 0, "daily": 0, "currency": "TL", "icon": "fa-gem", "emoji": "👑", "cost": 0, "prev": 0},
         {"name": "Eurobond", "val": 0, "val_tl": 0, "change": 0, "daily": 0, "currency": "TL", "icon": "fa-file-invoice-dollar", "emoji": "📉", "cost": 0, "prev": 0},
-        {"name": "BES/OKS", "val": 0, "val_tl": 0, "change": 0, "daily": 0, "currency": "TL", "icon": "fa-piggy-bank", "emoji": "🐖", "cost": 0, "prev": 0}
+        {"name": "BES/OKS", "val": 0, "val_tl": 0, "change": 0, "daily": 0, "currency": "TL", "icon": "fa-piggy-bank", "emoji": "🐖", "cost": 0, "prev": 0},
+        {"name": "Nakit", "val": 0, "val_tl": 0, "change": 0, "daily": 0, "currency": "TL", "icon": "fa-wallet", "emoji": "💵", "cost": 0, "prev": 0}
     ]
 
     total_val_tl = 0; total_prev = 0; total_cost = 0; detailed_list = []
@@ -1218,58 +1231,129 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
     gold_data = get_current_data("ALTIN", "emtia")
     gold_gram_price = gold_data["price"] if gold_data else 3000.0
 
+    # Merge Holdings across portfolios
+    merged_holdings = {}
+    
     for h in agg_holdings:
-        d = get_current_data(h["symbol"], h.get("type"))
-        t = h.get("type", "").lower()
-        cat_idx, currency, cat_emoji = get_asset_details(h["symbol"], t)
+        sym = h["symbol"]
+        if sym not in merged_holdings:
+            merged_holdings[sym] = {
+                "symbol": sym,
+                "type": h.get("type", ""),
+                "amount": 0.0,
+                "total_cost_val": 0.0,
+                "portfolios": set(),
+                # Store original items to calculate individual category contributions if needed,
+                # but here we just need aggregated view
+            }
+        
+        merged_holdings[sym]["amount"] += h["amount"]
+        merged_holdings[sym]["total_cost_val"] += h["amount"] * h["cost"]
+        merged_holdings[sym]["portfolios"].add(h["p"])
+
+    # Now populate detailed_list from merged_holdings
+    for sym, m_data in merged_holdings.items():
+        amount = m_data["amount"]
+        avg_cost = m_data["total_cost_val"] / amount if amount > 0 else 0
+        p_names = ", ".join(sorted(list(m_data["portfolios"])))
+        if len(m_data["portfolios"]) > 1:
+            p_names = f"{len(m_data["portfolios"])} Portföy" # Simplified display for multi-portfolio
+
+        d = get_current_data(sym, m_data.get("type"))
+        t = m_data.get("type", "").lower()
+        cat_idx, currency, cat_emoji = get_asset_details(sym, t)
         
         if d:
-            p_val_orig = d["price"]*h["amount"]
-            prev_val_orig = d["prev_close"]*h["amount"]
-            cost_val_orig = h["cost"]*h["amount"]
+            p_val_orig = d["price"] * amount
+            prev_val_orig = d["prev_close"] * amount
+            cost_val_orig = m_data["total_cost_val"]
+            
             rate = usd_rate if currency == "USD" else 1.0
             v = p_val_orig * rate
-            h["val_tl"] = v  # Store for Risk Analysis and other modules
             
-            total_val_tl += v; total_prev += prev_val_orig * rate; total_cost += cost_val_orig * rate
-            if h["p"] in p_metrics:
-                p_metrics[h["p"]]["val"] += v
-                p_metrics[h["p"]]["prev"] += prev_val_orig * rate
-                p_metrics[h["p"]]["cost"] += cost_val_orig * rate
-                
-            # Category Accumulation
-            if categories[cat_idx]["currency"] == "USD":
-                categories[cat_idx]["val"] += p_val_orig
-                categories[cat_idx]["cost"] += cost_val_orig
-                categories[cat_idx]["prev"] += prev_val_orig
-            else:
-                categories[cat_idx]["val"] += v
-                categories[cat_idx]["cost"] += cost_val_orig * rate
-                categories[cat_idx]["prev"] += prev_val_orig * rate
-                
-            categories[cat_idx]["val_tl"] += v
-                
+            # Note: We need to distribute these aggregates back to category totals or use the original loop for that.
+            # To avoid breaking category totals logic which runs on individual items above, we should KEEP the original loop for Totals/Categories
+            # and use this loop ONLY for detailed_list display.
+            # BUT: calculating category totals again here is cleaner if we want consistent aggregation.
+            
+            # Let's populate detailed_list here
             detailed_list.append({
-                "Emoji": cat_emoji, "Varlık": h["symbol"], "Portföy": h["p"],
-                "Adet": h["amount"], "Maliyet": h["cost"], "T_Maliyet": cost_val_orig,
+                "Emoji": cat_emoji, "Varlık": sym, "Portföy": p_names,
+                "Adet": amount, "Maliyet": avg_cost, "T_Maliyet": cost_val_orig,
                 "Güncel": d["price"], "Deger": p_val_orig, "Deger_TL": v, 
                 "Gunluk_KZ": p_val_orig - prev_val_orig,
                 "Toplam_KZ": p_val_orig - cost_val_orig,
                 "Gunluk_KZ_TL": (p_val_orig - prev_val_orig) * rate,
                 "Toplam_KZ_TL": (p_val_orig - cost_val_orig) * rate,
                 "Günlük (%)": (d["price"]/d["prev_close"]-1)*100,
-                "Toplam (%)": (d["price"]/h["cost"]-1)*100, "Para": currency
+                "Toplam (%)": (d["price"]/avg_cost-1)*100 if avg_cost > 0 else 0, "Para": currency
             })
 
         else:
+            cv_orig = m_data["total_cost_val"]
+            rate = usd_rate if currency == "USD" else 1.0
+            cv = cv_orig * rate
+            
+            detailed_list.append({
+                "Emoji": "⚠️", "Varlık": f"{sym} (Veri Yok)", "Portföy": p_names,
+                "Adet": amount, "Maliyet": avg_cost, "T_Maliyet": cv_orig,
+                "Güncel": avg_cost, "Deger": cv_orig, "Deger_TL": cv, "Gunluk_KZ": 0, "Toplam_KZ": 0,
+                "Gunluk_KZ_TL": 0, "Toplam_KZ_TL": 0,
+                "Günlük (%)": 0, "Toplam (%)": 0, "Para": currency
+            })
+            
+    # Re-run loop for Category Totals & Overall Metrics (This must run on INDIVIDUAL holdings to be accurate per portfolio)
+    # The previous loop (lines 1075++) was doing BOTH (detailed_list append AND metric calc).
+    # I replaced that entire block. So I MUST re-implement category/total calculation logic here or inside the merged loop.
+    # PROBLEM: Risk analysis relies on 'val_tl' in 'agg_holdings'. Merged loop doesn't update agg_holdings.
+    # SOLUTION: Restore the original loop for METRICS ONLY (remove detailed_list.append), and use the new merged loop for DETAILED_LIST.
+    
+    # ... Restoring Metric Calculation Loop (invisible) ...
+    for h in agg_holdings:
+        d = get_current_data(h["symbol"], h.get("type"))
+        t = h.get("type", "").lower()
+        cat_idx, currency, cat_emoji = get_asset_details(h["symbol"], t)
+        
+        if d:
+            rate = usd_rate if currency == "USD" else 1.0
+            v = d["price"] * h["amount"] * rate
+            h["val_tl"] = v # Critical for Risk Module
+            
+            total_val_tl += v
+            total_prev += d["prev_close"] * h["amount"] * rate
+            total_cost += h["cost"] * h["amount"] * rate
+            
+            if h["p"] in p_metrics:
+                p_metrics[h["p"]]["val"] += v
+                p_metrics[h["p"]]["prev"] += d["prev_close"] * h["amount"] * rate
+                p_metrics[h["p"]]["cost"] += h["cost"] * h["amount"] * rate
+
+            # Category Accumulation
+            c_val = d["price"] * h["amount"]
+            c_cost = h["cost"] * h["amount"]
+            c_prev = d["prev_close"] * h["amount"]
+            
+            if categories[cat_idx]["currency"] == "USD":
+                categories[cat_idx]["val"] += c_val
+                categories[cat_idx]["cost"] += c_cost
+                categories[cat_idx]["prev"] += c_prev
+            else:
+                categories[cat_idx]["val"] += v
+                categories[cat_idx]["cost"] += c_cost * rate
+                categories[cat_idx]["prev"] += c_prev * rate
+                
+            categories[cat_idx]["val_tl"] += v
+        else:
+             # Fallback for no data
             cv_orig = h["cost"]*h["amount"]
             rate = usd_rate if currency == "USD" else 1.0
             cv = cv_orig * rate
+            h["val_tl"] = cv
             total_val_tl += cv; total_prev += cv; total_cost += cv
+            
             if h["p"] in p_metrics:
                 p_metrics[h["p"]]["val"] += cv; p_metrics[h["p"]]["prev"] += cv; p_metrics[h["p"]]["cost"] += cv
-                
-            # Category Accumulation
+            
             if categories[cat_idx]["currency"] == "USD":
                 categories[cat_idx]["val"] += cv_orig
                 categories[cat_idx]["cost"] += cv_orig
@@ -1278,16 +1362,7 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
                 categories[cat_idx]["val"] += cv
                 categories[cat_idx]["cost"] += cv
                 categories[cat_idx]["prev"] += cv
-                
             categories[cat_idx]["val_tl"] += cv
-                
-            detailed_list.append({
-                "Emoji": "⚠️", "Varlık": f"{h['symbol']} (Veri Yok)", "Portföy": h["p"],
-                "Adet": h["amount"], "Maliyet": h["cost"], "T_Maliyet": cv_orig,
-                "Güncel": h["cost"], "Deger": cv_orig, "Deger_TL": cv, "Gunluk_KZ": 0, "Toplam_KZ": 0,
-                "Gunluk_KZ_TL": 0, "Toplam_KZ_TL": 0,
-                "Günlük (%)": 0, "Toplam (%)": 0, "Para": currency
-            })
 
 
     # Calculate Category Percentages
