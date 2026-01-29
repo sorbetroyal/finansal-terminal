@@ -2,7 +2,8 @@ from utils import (get_current_data, load_portfolio, add_asset, remove_asset, de
                    get_history, create_portfolio, delete_portfolio, save_all_portfolios, get_all_holdings, get_portfolio_history,
                    load_selected_portfolios, save_selected_portfolios, get_portfolio_metrics, fetch_all_prices_parallel,
                    load_alerts, add_alert, delete_alert, check_alerts, migrate_local_to_supabase, claim_orphaned_supabase_data, 
-                   is_gold_tl_asset, get_asset_details, get_gemini_api_key, save_gemini_api_key)
+                   is_gold_tl_asset, get_asset_details, get_gemini_api_key, save_gemini_api_key,
+                   get_watchlist, add_to_watchlist, remove_from_watchlist)
 from auth import init_auth_state, get_current_user, render_auth_page, logout
 import streamlit as st
 import pandas as pd
@@ -985,8 +986,8 @@ if not ticker_data_html:
 nav_cols = st.columns([1, 1], gap="large")
 with nav_cols[0]:
     # Interactive Tab Switcher
-    tab_cols = st.columns([1, 1, 1.2], gap="small")
-    tabs = ["PORTFÖYÜM", "STRATEJİLERİM", "PORTFÖY ANALİZİ"]
+    tab_cols = st.columns(4, gap="small")
+    tabs = ["PORTFÖYÜM", "PORTFÖY ANALİZİ", "STRATEJİLER", "İZLEME LİSTESİ"]
     # Safe Tab Switching Callback
     def change_tab(t):
         st.session_state.active_tab = t
@@ -1009,6 +1010,10 @@ with nav_cols[1]:
         if st.button("➕ VARLIK EKLE/SİL", use_container_width=True):
             st.session_state.show_asset_modal = True
             st.session_state.show_portfolio_modal = False
+            # Force close watchlist mode if open (optional but cleaner)
+            if st.session_state.active_tab == "İZLEME LİSTESİ":
+                 pass 
+
     with btn_cols[1]:
         if st.button("📁 PORTFÖY YÖNET", use_container_width=True):
             st.session_state.show_portfolio_modal = True
@@ -1048,6 +1053,148 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # 4. DATA CONTROLLER
+
+# --- WATCHLIST LOGIC ---
+if st.session_state.active_tab == "İZLEME LİSTESİ":
+    st.markdown('<div style="margin-top:0px; margin-bottom:25px; display:flex; align-items:center; gap:12px;"><i class="fas fa-eye" style="color:#00f2ff; font-size:1.5rem;"></i><span style="color:white; font-weight:700; font-size:1.4rem; letter-spacing:-0.5px;">İzleme Listesi</span></div>', unsafe_allow_html=True)
+    
+    col_w_list, col_w_add = st.columns([2, 1], gap="large")
+    
+    with col_w_add:
+        st.markdown('<div class="glass-card" style="padding:20px; border:1px solid rgba(0, 242, 255, 0.15);">', unsafe_allow_html=True)
+        st.markdown('<p style="color:white; font-weight:700; font-size:1rem; margin-bottom:15px;">➕ Listeye Ekle</p>', unsafe_allow_html=True)
+        
+        with st.form("watchlist_add_form", clear_on_submit=True):
+            w_type = st.selectbox("Varlık Tipi", ["bist hisse", "abd hisse/etf", "kripto", "döviz", "emtia", "tefas fon"], key="w_add_type")
+            w_sym = st.text_input("Sembol", placeholder="Örn: AKBNK, AAPL").upper().strip()
+            
+            if st.form_submit_button("Ekle", type="primary", use_container_width=True):
+                if w_sym:
+                    # Validate
+                    with st.spinner("Kontrol ediliyor..."):
+                        d = get_current_data(w_sym, w_type)
+                    if d:
+                        succ, msg = add_to_watchlist(w_sym, w_type)
+                        if succ:
+                            st.success("Eklendi")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.warning(msg)
+                    else:
+                        st.error("Sembol bulunamadı")
+                else:
+                    st.warning("Sembol girin")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+    with col_w_list:
+        w_list = get_watchlist()
+        if not w_list:
+             st.info("İzleme listeniz boş. Sağ taraftan varlık ekleyebilirsiniz.")
+        else:
+            # Prepare data for parallel fetch
+            to_fetch = [{"symbol": x["symbol"], "type": x["type"]} for x in w_list]
+            fetch_all_prices_parallel(to_fetch)
+            
+            for item in w_list:
+                s = item["symbol"]
+                t = item["type"]
+                # Get Data
+                data = get_current_data(s, t)
+                price = data["price"] if data else 0
+                prev = data["prev_close"] if data else 0
+                
+                pct = ((price / prev) - 1) * 100 if prev > 0 else 0
+                color = "#00ff88" if pct > 0 else ("#ff3e3e" if pct < 0 else "white")
+                sign = "+" if pct > 0 else ""
+                
+                cat_idx, currency, emoji = get_asset_details(s, t)
+
+                # Generate Sparkline
+                hist = get_history(s, period="1mo", asset_type=t)
+                sparkline_svg = ""
+                if not hist.empty and len(hist) > 1:
+                    try:
+                        closes = hist['Close'].values
+                        if len(closes) > 0:
+                            min_c, max_c = min(closes), max(closes)
+                            range_c = max_c - min_c if max_c != min_c else 1
+                            sw, sh = 100, 30
+                            points = []
+                            for i, val in enumerate(closes):
+                                x = (i / (len(closes) - 1)) * sw
+                                y = sh - ((val - min_c) / range_c) * sh
+                                points.append(f"{x:.1f},{y:.1f}")
+                            
+                            stroke = "#00ff88" if closes[-1] >= closes[0] else "#ff3e3e"
+                            sparkline_svg = f'<svg width="{sw}" height="{sh}" style="margin: 0 20px;"><polyline points="{" ".join(points)}" fill="none" stroke="{stroke}" stroke-width="2" /></svg>'
+                    except: pass
+                
+                # Initial Price Logic
+                initial_p = item.get("initial_price", 0)
+                perf_since_add = 0
+                perf_color = "rgba(255,255,255,0.5)"
+                perf_sign = ""
+                
+                if initial_p > 0 and price > 0:
+                    perf_since_add = ((price / initial_p) - 1) * 100
+                    if perf_since_add > 0:
+                        perf_color = "#00ff88"
+                        perf_sign = "+"
+                    elif perf_since_add < 0:
+                        perf_color = "#ff3e3e"
+                        perf_sign = ""
+                
+                # Layout: 12 parts for Card, 1 part for Delete Button
+                col_card, col_del = st.columns([12, 1])
+                
+                with col_card:
+                    st.markdown(f"""
+                    <div class="glass-card" style="padding:15px; margin-bottom:0px; display:flex; justify-content:space-between; align-items:center; height: 80px;">
+                        <div style="display:flex; align-items:center; gap:15px; flex:1.5;">
+                            <div style="font-size:1.5rem;">{emoji}</div>
+                            <div>
+                                <div style="color:white; font-weight:700; font-size:1.1rem;">{s}</div>
+                                <div style="color:rgba(255,255,255,0.5); font-size:0.75rem;">{t.upper()}</div>
+                            </div>
+                        </div>
+                        
+                        <div style="flex:2; display:flex; justify-content:center; opacity:0.8;">
+                            {sparkline_svg}
+                        </div>
+
+                        <div style="text-align:right; flex:1;">
+                            <div style="color:white; font-weight:600; font-size:0.9rem;">{initial_p:,.2f}</div>
+                            <div style="color:{perf_color}; font-weight:700; font-size:0.85rem;">{perf_sign}%{perf_since_add:.2f}</div>
+                            
+                            <!-- Time ago display -->
+                            <div style="color:rgba(255,255,255,0.4); font-size:0.65rem; margin-top:2px; font-weight:600;">
+                                {
+                                    (lambda d: 
+                                        "Bugün" if (datetime.now() - datetime.fromisoformat(d)).days == 0 else
+                                        f"{(datetime.now() - datetime.fromisoformat(d)).days} gün önce"
+                                    )(item.get("added_at", datetime.now().isoformat()))
+                                }
+                            </div>
+                        </div>
+
+                        <div style="text-align:right; flex:1.5;">
+                            <div style="color:white; font-weight:700; font-size:1.1rem;">{price:,.2f} <span style="font-size:0.8rem; color:rgba(255,255,255,0.5);">{currency}</span></div>
+                            <div style="color:{color}; font-weight:600; font-size:0.9rem;">{sign}%{pct:.2f} (Günlük)</div>
+                        </div>
+                    </div>
+                    """.replace('\n', '').replace('    ', ''), unsafe_allow_html=True)
+                
+                with col_del:
+                     # Centering the delete button vertically with some margin hack
+                     st.write("") 
+                     st.write("")
+                     if st.button("🗑️", key=f"del_w_{s}", help="Listeden Çıkar"):
+                         remove_from_watchlist(s)
+                         st.rerun()
+                
+                st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
+
 if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
     agg_holdings = [h for h in all_holdings if h["p"] in st.session_state.selected_p] if all_holdings else []
 

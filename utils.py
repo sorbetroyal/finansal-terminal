@@ -1301,6 +1301,70 @@ def check_alerts():
         
     return triggered_alerts
 
+# ==================== WATCHLIST FUNCTIONS ====================
+
+def get_watchlist():
+    """Retrieve the user's watchlist from Supabase user_settings."""
+    try:
+        val = get_user_setting("user_watchlist")
+        if val:
+            if isinstance(val, str):
+                try:
+                    return json.loads(val)
+                except:
+                    return []
+            return val
+        return []
+    except Exception as e:
+        print(f"Error getting watchlist: {e}")
+        return []
+
+def add_to_watchlist(symbol, asset_type):
+    """Add a symbol to the user's watchlist with initial price tracking."""
+    try:
+        current_list = get_watchlist()
+        # Check for duplicates
+        if any(item['symbol'] == symbol for item in current_list):
+            return False, "Bu varlık zaten izleme listenizde."
+        
+        # Fetch current price for initial reference
+        init_price = 0
+        try:
+            d = get_current_data(symbol, asset_type)
+            if d:
+                init_price = d.get("price", 0)
+        except:
+            pass
+            
+        current_list.append({
+            "symbol": symbol,
+            "type": asset_type,
+            "added_at": datetime.now().isoformat(),
+            "initial_price": init_price
+        })
+        
+        # Save back
+        val_to_save = json.dumps(current_list, ensure_ascii=False)
+        success, msg = save_user_setting("user_watchlist", val_to_save)
+        return success, msg
+    except Exception as e:
+        return False, str(e)
+
+def remove_from_watchlist(symbol):
+    """Remove a symbol from the user's watchlist."""
+    try:
+        current_list = get_watchlist()
+        new_list = [item for item in current_list if item['symbol'] != symbol]
+        
+        if len(new_list) == len(current_list):
+            return False, "Varlık bulunamadı."
+            
+        val_to_save = json.dumps(new_list, ensure_ascii=False)
+        success, msg = save_user_setting("user_watchlist", val_to_save)
+        return success, msg
+    except Exception as e:
+        return False, str(e)
+
 
 
 
