@@ -1131,33 +1131,33 @@ def get_all_holdings():
 
 import json
 
-SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
+# SETTINGS_FILE is no longer needed for Supabase
+# SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 
 def load_selected_portfolios():
-    """Load selected portfolios from settings file."""
+    """Load selected portfolios from Supabase user_settings."""
     try:
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                settings = json.load(f)
-                return settings.get("selected_portfolios", None)
+        val = get_user_setting("selected_portfolios")
+        if val:
+            # Handle both stringified JSON (for text columns) and direct JSON (for jsonb columns)
+            if isinstance(val, str):
+                try:
+                    return json.loads(val)
+                except:
+                    return []
+            return val
         return None
     except Exception as e:
         print(f"Error loading selected portfolios: {e}")
         return None
 
 def save_selected_portfolios(selected_list):
-    """Save selected portfolios to settings file."""
+    """Save selected portfolios to Supabase user_settings."""
     try:
-        settings = {}
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                settings = json.load(f)
-        
-        settings["selected_portfolios"] = selected_list
-        
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(settings, f, ensure_ascii=False, indent=2)
-        return True
+        # Serialize to ensure compatibility with potential TEXT columns
+        val_to_save = json.dumps(selected_list, ensure_ascii=False)
+        success, msg = save_user_setting("selected_portfolios", val_to_save)
+        return success
     except Exception as e:
         print(f"Error saving selected portfolios: {e}")
         return False
