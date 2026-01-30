@@ -1183,8 +1183,11 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
                             <div style="color:rgba(255,255,255,0.4); font-size:0.65rem; margin-top:2px; font-weight:600;">
                                 {
                                     (lambda d: 
-                                        "Bugün" if (datetime.now() - datetime.fromisoformat(d)).days == 0 else
-                                        f"{(datetime.now() - datetime.fromisoformat(d)).days} gün önce"
+                                        (lambda diff: 
+                                            "Bugün" if diff == 0 else 
+                                            "Dün" if diff == 1 else 
+                                            f"{diff} gün önce"
+                                        )((datetime.now().date() - datetime.fromisoformat(d).date()).days)
                                     )(item.get("added_at", datetime.now().isoformat()))
                                 }
                             </div>
@@ -2139,7 +2142,7 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
             ai_analysis_dialog(str(p_data))
         st.markdown('</div>', unsafe_allow_html=True)
 
-elif st.session_state.active_tab == "STRATEJİLERİM":
+elif st.session_state.active_tab == "STRATEJİLER":
     st.markdown("""
         <style>
             .alert-card {
