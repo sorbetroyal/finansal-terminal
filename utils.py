@@ -209,6 +209,98 @@ def _fetch_single_symbol(std_symbol, a_type):
     except Exception as e:
         return None
 
+# ==================== STRATEGY FUNCTIONS (Supertrend + KAMA) ====================
+
+def calculate_kama(df, period=21, fast=2, slow=30):
+    """Calculate Kaufman's Adaptive Moving Average."""
+    if len(df) < period + 1:
+        return pd.Series(index=df.index)
+    
+    close = df['Close']
+    change = abs(close - close.shift(period))
+    volatility = abs(close - close.shift(1)).rolling(period).sum()
+    
+    er = change / volatility
+    sc = (er * (2/(fast+1) - 2/(slow+1)) + 2/(slow+1))**2
+    
+    kama = pd.Series(index=df.index)
+    # Corrected kama[period] initialization to avoid SettingWithCopyWarning or ambiguity
+    kama.iloc[period] = close.iloc[period]
+    
+    for i in range(period + 1, len(df)):
+        # Corrected access to kama[i-1]
+        kama.iloc[i] = kama.iloc[i-1] + sc.iloc[i] * (close.iloc[i] - kama.iloc[i-1])
+        
+    return kama
+
+def calculate_supertrend(df, period=10, multiplier=3):
+    """Calculate Supertrend indicator."""
+    if len(df) < period + 1:
+        return pd.Series(index=df.index)
+        
+    hl2 = (df['High'] + df['Low']) / 2
+    
+    # ATR manual calculation
+    h_l = df['High'] - df['Low']
+    h_pc = abs(df['High'] - df['Close'].shift(1))
+    l_pc = abs(df['Low'] - df['Close'].shift(1))
+    tr = pd.concat([h_l, h_pc, l_pc], axis=1).max(axis=1)
+    atr = tr.rolling(period).mean()
+    
+    upperband = hl2 + (multiplier * atr)
+    lowerband = hl2 - (multiplier * atr)
+    
+    # Supertrend logic
+    st = pd.Series(True, index=df.index)
+    st_val = pd.Series(0.0, index=df.index)
+    
+    for i in range(1, len(df)):
+        if df['Close'].iloc[i] > upperband.iloc[i-1]:
+            st.iloc[i] = True
+        elif df['Close'].iloc[i] < lowerband.iloc[i-1]:
+            st.iloc[i] = False
+        else:
+            st.iloc[i] = st.iloc[i-1]
+            if st.iloc[i] and lowerband.iloc[i] < lowerband.iloc[i-1]:
+                lowerband.iloc[i] = lowerband.iloc[i-1]
+            if not st.iloc[i] and upperband.iloc[i] > upperband.iloc[i-1]:
+                upperband.iloc[i] = upperband.iloc[i-1]
+        
+        st_val.iloc[i] = lowerband.iloc[i] if st.iloc[i] else upperband.iloc[i]
+        
+    return st_val
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_strategy_signal(symbol, asset_type):
+    """
+    Checks the SAT condition: Price < Supertrend AND Price < KAMA.
+    Parameters: ST (10, 3), KAMA (21, 2, 30)
+    """
+    try:
+        # Fetch at least 60 days to have enough room for 21-period indicators
+        hist = get_history(symbol, period="60d", asset_type=asset_type)
+        if hist.empty or len(hist) < 30:
+            return False
+            
+        current_price = hist['Close'].iloc[-1]
+        kama = calculate_kama(hist, period=21)
+        st_val = calculate_supertrend(hist, period=10, multiplier=3)
+        
+        if kama.empty or st_val.empty:
+            return False
+            
+        latest_kama = kama.iloc[-1]
+        latest_st = st_val.iloc[-1]
+        
+        # Supertrend direction: if current price is below the trend line (which is upperband in downtrend)
+        # In our calculation ST_val is the stop line.
+        # If Price < ST_val AND Price < KAMA -> SAT (Sinyal: Bozulma)
+        if current_price < latest_st and current_price < latest_kama:
+            return True
+        return False
+    except:
+        return False
+
 def get_current_data(symbol, asset_type=None):
     """Fetch current price with global cache priority, then falling back to cached single fetch."""
     # 1. Standardization (MUST BE FIRST for cache consistency)

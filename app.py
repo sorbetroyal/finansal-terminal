@@ -3,7 +3,7 @@ from utils import (get_current_data, load_portfolio, add_asset, remove_asset, de
                    load_selected_portfolios, save_selected_portfolios, get_portfolio_metrics, fetch_all_prices_parallel,
                    load_alerts, add_alert, delete_alert, check_alerts, migrate_local_to_supabase, claim_orphaned_supabase_data, 
                    is_gold_tl_asset, get_asset_details, get_gemini_api_key, save_gemini_api_key,
-                   get_watchlist, add_to_watchlist, remove_from_watchlist)
+                   get_watchlist, add_to_watchlist, remove_from_watchlist, get_strategy_signal)
 from auth import init_auth_state, get_current_user, render_auth_page, logout
 import streamlit as st
 import pandas as pd
@@ -149,6 +149,127 @@ def ai_analysis_dialog(portfolio_data):
             
     except Exception as e:
         st.error(f"Analiz sırasında bir hata oluştu: {e}")
+
+@st.dialog("📈 Teknik Grafik", width="large")
+def asset_chart_dialog(symbol, asset_type):
+    # Ultra-aggressive CSS to force dark theme and white text in dialogs
+    st.markdown("""
+        <style>
+            div[data-testid="stDialog"] > div:first-child, div[role="dialog"] { 
+                background-color: #0b0e14 !important; 
+            }
+            div[data-testid="stDialog"] h3 { color: #00f2ff !important; margin-bottom: 20px; }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    import plotly.graph_objects as go
+    
+    t = str(asset_type).lower()
+    is_tefas = any(x in t for x in ["tefas", "fon", "bes", "oks"])
+    is_bist = "bist" in t
+    
+    if is_tefas or is_bist:
+        title_suffix = "Fiyat Geçmişi (TEFAS)" if is_tefas else "Teknik Grafik (BIST)"
+        st.markdown(f"### {symbol} - {title_suffix}")
+        
+        with st.spinner("Veriler yükleniyor..."):
+            hist = get_history(symbol, period="1y", asset_type=asset_type)
+            
+        if not hist.empty:
+            fig = go.Figure()
+            
+            if is_bist and all(col in hist.columns for col in ['Open', 'High', 'Low', 'Close']):
+                # Candlestick for BIST
+                fig.add_trace(go.Candlestick(
+                    x=hist.index,
+                    open=hist['Open'],
+                    high=hist['High'],
+                    low=hist['Low'],
+                    close=hist['Close'],
+                    name=symbol,
+                    increasing_line_color='#00ff88', 
+                    decreasing_line_color='#ff3e3e'
+                ))
+            else:
+                # Line chart for TEFAS or if OHLC is missing
+                fig.add_trace(go.Scatter(
+                    x=hist.index, 
+                    y=hist['Close'],
+                    name=symbol,
+                    fill='tonexty',
+                    fillcolor='rgba(0, 242, 255, 0.1)',
+                    line=dict(color='#00f2ff', width=3),
+                    hovertemplate='%{y:,.2f} TL<br>%{x}<extra></extra>'
+                ))
+            
+            fig.update_layout(
+                template="plotly_dark",
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=0, r=0, t=20, b=0),
+                height=900,
+                xaxis=dict(
+                    showgrid=False, 
+                    rangeslider=dict(visible=True, bgcolor='rgba(255,255,255,0.05)'),
+                    type='date'
+                ),
+                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', side="right", tickformat=",.2f"),
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.error("Veri alınamadı. Lütfen sembolü kontrol edin.")
+    else:
+        tv_sym = get_tradingview_symbol(symbol, asset_type)
+        st.markdown(f"### {symbol} - Canlı Grafik")
+        
+        import streamlit.components.v1 as components
+        
+        # Using Direct Iframe for guaranteed height stability in Streamlit
+        tv_url = f"https://s.tradingview.com/widgetembed/?symbol={tv_sym}&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&theme=dark&style=1&timezone=Europe%2FIstanbul&locale=tr"
+        
+        tv_iframe = f"""
+        <div style="height:800px; width:100%;">
+            <iframe 
+                src="{tv_url}"
+                width="100%" 
+                height="800" 
+                frameborder="0" 
+                allowfullscreen 
+                scrolling="no"
+                style="display:block; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);"
+            ></iframe>
+        </div>
+        """
+        components.html(tv_iframe, height=820)
+
+def get_tradingview_symbol(symbol, asset_type):
+    s = str(symbol).upper().strip()
+    t = str(asset_type).lower()
+    
+    if "bist" in t:
+        return f"BIST:{s.replace('.IS', '')}"
+    elif "kripto" in t:
+        # Clean the base symbol
+        base = s.replace("-USD", "").replace("-USDT", "").replace("USDT", "").replace("USD", "")
+        
+        # If the result is empty or it was originally USDT/USDC, show it against TRY
+        if base == "" or s in ["USDT", "USDC", "BUSD"]:
+            return "BINANCE:USDTTRY"
+            
+        return f"BINANCE:{base}USDT"
+    elif "abd" in t:
+        return s
+    elif "döviz" in t:
+        if any(x in s for x in ["USD", "USDT", "DOLAR"]): return "FX_IDC:USDTRY"
+        if "EUR" in s: return "FX_IDC:EURTRY"
+        if "GBP" in s: return "FX_IDC:GBPTRY"
+        return s
+    elif "emtia" in t:
+        if "ALTIN" in s or "GC=F" in s or "XAU" in s: return "TVC:GOLD"
+        if "GÜMÜŞ" in s or "GUMUS" in s or "SI=F" in s or "XAG" in s: return "TVC:SILVER"
+        return s
+    return s
 
 @st.dialog("Portföy İçeriği", width="large")
 def portfolio_details_dialog(p_name, p_list):
@@ -359,8 +480,32 @@ def asset_management_dialog():
             purchase_date = st.date_input("📅 Alış Tarihi", value=datetime.now(), key="add_date")
         
         st.markdown("<div style='margin-top:25px;'></div>", unsafe_allow_html=True)
-        if st.button("🚀 Varlık Ekle", type="primary", use_container_width=True):
-            if asset_symbol and asset_amount is not None and asset_cost is not None and asset_amount > 0 and asset_cost > 0:
+        if asset_symbol and asset_amount and asset_cost:
+            # Calculate total impact
+            rate = 1.0
+            if asset_type in ["abd hisse/etf", "kripto"]:
+                usd_data = get_current_data("USDTRY=X", "döviz")
+                rate = usd_data["price"] if usd_data else 34.0
+            
+            total_val = asset_amount * asset_cost * rate
+            
+            st.markdown(f"""
+                <div style="background:rgba(0, 242, 255, 0.05); border:1px solid rgba(0, 242, 255, 0.2); border-radius:10px; padding:15px; margin-top:10px;">
+                    <div style="color:rgba(255,255,255,0.6); font-size:0.75rem;">Eklenecek Toplam Değer:</div>
+                    <div style="color:#00f2ff; font-weight:700; font-size:1.2rem;">{total_val:,.2f} TL</div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            high_value = total_val > 500000 # 500k limit for warning
+            
+            if high_value:
+                st.warning("⚠️ Girdiğiniz miktar portföy için oldukça yüksek görünüyor. Lütfen rakamları kontrol edin.")
+                confirm = st.checkbox("Rakamların doğruluğunu onaylıyorum", key="entry_confirm")
+            else:
+                confirm = True
+
+            st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+            if st.button("🚀 Varlık Ekle", type="primary", use_container_width=True, disabled=not confirm):
                 with st.spinner(f"🔍 {asset_symbol} kontrol ediliyor..."):
                     valid_data = get_current_data(asset_symbol, asset_type)
                 
@@ -368,14 +513,16 @@ def asset_management_dialog():
                     success = add_asset(selected_portfolio, asset_symbol, asset_amount, asset_cost, asset_type, purchase_date.strftime("%Y-%m-%d"))
                     if success:
                         st.success(f"✅ {asset_symbol} eklendi!")
+                        # FORCE CACHE CLEAR on new entries to fix graph immediately
+                        st.cache_data.clear()
                         st.session_state.show_asset_modal = False
                         st.rerun()
                     else: 
                         st.error("❌ Hata.")
                 else:
                     st.error(f"❌ '{asset_symbol}' bulunamadı!")
-            else: 
-                st.warning("⚠️ Bilgileri eksiksiz girin.")
+        else: 
+            st.write("") # Placeholder
 
 
     
@@ -511,6 +658,58 @@ def portfolio_management_dialog():
             st.info(message)
 
     st.markdown('<div style="margin: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.1);"></div>', unsafe_allow_html=True)
+
+@st.dialog("📋 İşlem Geçmişi Listesi", width="large")
+def transaction_history_dialog():
+    st.markdown("""
+        <style>
+            .trans-row {
+                background: rgba(255, 255, 255, 0.03);
+                border-radius: 10px;
+                padding: 15px;
+                margin-bottom: 15px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+            }
+            .trans-symbol { color: #00f2ff; font-weight: 700; font-size: 1.1rem; }
+            .trans-meta { color: rgba(255,255,255,0.4); font-size: 0.8rem; margin-top: 4px; }
+            .trans-details { color: white; font-weight: 500; font-size: 0.9rem; margin-top: 8px; }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    all_h = get_all_holdings()
+    if not all_h:
+        st.info("Henüz kayıtlı bir işlem bulunmuyor.")
+        return
+        
+    all_h.sort(key=lambda x: x.get('purchase_date', '2000-01-01'), reverse=True)
+    
+    for i, h in enumerate(all_h):
+        with st.container():
+            col_text, col_btn = st.columns([5, 1])
+            with col_text:
+                total_cost = h['amount'] * h['cost']
+                st.markdown(f"""
+                    <div class="trans-row">
+                        <div class="trans-symbol">{h['symbol']} <span style="font-size:0.75rem; font-weight:400; color:rgba(255,255,255,0.3);">| {h['p']}</span></div>
+                        <div class="trans-meta">📅 {h['purchase_date']} | 🏷️ {h['type'].upper()}</div>
+                        <div class="trans-details">
+                            {h['amount']:,} adet @ {h['cost']:,} TL
+                            <br>
+                            <span style="color:rgba(255,255,255,0.5); font-size:0.8rem;">Toplam Maliyet: {total_cost:,.2f} TL</span>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with col_btn:
+                st.markdown("<div style='margin-top:25px;'></div>", unsafe_allow_html=True)
+                if st.button("🗑️ Sil", key=f"dialog_del_{i}", use_container_width=True):
+                    if delete_asset(h['p'], h['symbol'], h['purchase_date']):
+                        st.success(f"{h['symbol']} silindi.")
+                        st.cache_data.clear()
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Silinemedi.")
+
     
     # EXISTING PORTFOLIOS SECTION (compact grid)
 
@@ -632,6 +831,14 @@ st.markdown(f"""
         padding-right: 0 !important;
         max-width: 100% !important; 
         min-height: 100vh;
+    }}
+
+    /* Remove Sidebar */
+    section[data-testid="stSidebar"] {{
+        display: none !important;
+    }}
+    button[kind="header"] {{
+        display: none !important;
     }}
 
     /* Selectbox Visibility Fix */
@@ -969,11 +1176,14 @@ st.markdown(f"""
 
 # 1. INITIAL SESSION STATE & DATA LOAD (TOP PRIORITY FOR SPEED)
 if "show_asset_modal" not in st.session_state: st.session_state.show_asset_modal = False
+if "show_history_modal" not in st.session_state: st.session_state.show_history_modal = False
 if "show_portfolio_modal" not in st.session_state: st.session_state.show_portfolio_modal = False
 if "show_portfolio_details" not in st.session_state: st.session_state.show_portfolio_details = False
 if "portfolio_details_name" not in st.session_state: st.session_state.portfolio_details_name = None
 if "portfolio_details_data" not in st.session_state: st.session_state.portfolio_details_data = []
 if "active_tab" not in st.session_state: st.session_state.active_tab = "PORTFÖYÜM"
+if "chart_asset" not in st.session_state: st.session_state.chart_asset = None
+if "chart_asset_type" not in st.session_state: st.session_state.chart_asset_type = None
 
 portfolio_data = load_portfolio()
 all_portfolios = list(portfolio_data["portfolios"].keys())
@@ -1065,7 +1275,8 @@ with nav_cols[1]:
         # Logout button (Theme toggle removed - dark theme only)
         if st.button("🚪 ÇIKIŞ", use_container_width=True):
             logout()
-            st.rerun()
+
+
     
 st.markdown(f"""
 <div class="ticker-bar" style="margin-top: 15px; margin-bottom: 25px;">
@@ -1321,7 +1532,8 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
                 "Gunluk_KZ_TL": (p_val_orig - prev_val_orig) * rate,
                 "Toplam_KZ_TL": (p_val_orig - cost_val_orig) * rate,
                 "Günlük (%)": (d["price"]/d["prev_close"]-1)*100,
-                "Toplam (%)": (d["price"]/avg_cost-1)*100 if avg_cost > 0 else 0, "Para": currency
+                "Toplam (%)": (d["price"]/avg_cost-1)*100 if avg_cost > 0 else 0, "Para": currency,
+                "Signal": get_strategy_signal(sym, t)
             })
 
         else:
@@ -1632,10 +1844,9 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
                     st.markdown('</div>', unsafe_allow_html=True)
                 else:
                     st.markdown('<div class="glass-card p-6" style="text-align:center; color:rgba(255,255,255,0.4); padding:40px;">Tarihsel veri yükleniyor...</div>', unsafe_allow_html=True)
-            else:
-                st.markdown('<div class="glass-card p-6" style="text-align:center; color:rgba(255,255,255,0.4); padding:40px;">Portföyde varlık bulunmuyor</div>', unsafe_allow_html=True)
-    
-            # PROFESSIONAL METRICS PANEL
+            st.markdown('<div style="margin-top:20px; margin-bottom:20px;"></div>', unsafe_allow_html=True)
+            if st.button("📂 TÜM İŞLEM GEÇMİŞİNİ GÖRÜNTÜLE / SİL", use_container_width=True, type="secondary"):
+                st.session_state.show_history_modal = True
             
             simple_ret = portfolio_metrics.get("simple_return"); xirr_val = portfolio_metrics.get("xirr"); inv_days = portfolio_metrics.get("investment_days")
             twr_val = portfolio_metrics.get("twr"); bench_val = portfolio_metrics.get("benchmark_return"); alpha_val = portfolio_metrics.get("alpha")
@@ -2041,59 +2252,59 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
                     st.session_state.asset_sort_by = st.session_state.asset_sort_radio
                 st.radio("Sırala", options=list(sort_options.keys()), key="asset_sort_radio", index=list(sort_options.keys()).index(st.session_state.asset_sort_by), horizontal=True, label_visibility="collapsed", on_change=on_sort_change)
     
-            sort_key = sort_options.get(st.session_state.asset_sort_by, "Deger")
-            dr = ""
+            # Custom Header for All Assets
+            a_h_cols = st.columns([2.5, 2, 2, 2, 2, 1.5, 1.5, 0.8])
+            a_headers = ["VARLIK", "MALİYET", "TOPLAM ALIŞ", "GÜNCEL", "TOPLAM DEĞER", "GÜNLÜK K/Z", "TOPLAM K/Z", ""]
+            for i, h_text in enumerate(a_headers):
+                with a_h_cols[i]:
+                    st.markdown(f'<div style="color: rgba(255, 255, 255, 0.4); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 0;">{h_text}</div>', unsafe_allow_html=True)
+            
+            st.markdown('<div style="border-bottom: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 10px;"></div>', unsafe_allow_html=True)
+
+            sort_key = sort_options.get(st.session_state.asset_sort_by, "Deger_TL")
             sorted_detailed_list = sorted(detailed_list, key=lambda x: x.get(sort_key, 0), reverse=True)
-            for h in sorted_detailed_list:
+            for i, h in enumerate(sorted_detailed_list):
                 curr = h.get("Para", "TL")
                 g_kz = h.get("Gunluk_KZ", 0)
                 t_kz = h.get("Toplam_KZ", 0)
                 g_cls = "text-glow-green" if g_kz > 0 else ("text-glow-red" if g_kz < 0 else "")
                 t_cls = "text-glow-green" if t_kz > 0 else ("text-glow-red" if t_kz < 0 else "")
-                val_style = "font-weight:600;" if sort_key == "Deger_TL" else ""
-                g_row_cls = "background: rgba(0, 242, 255, 0.03);" if sort_key == "Günlük (%)" else ""
-                t_row_cls = "background: rgba(0, 242, 255, 0.03);" if sort_key == "Toplam (%)" else ""
                 
-                # Pre-format values to avoid f-string syntax errors
-                maliyet_str = f"{h['Maliyet']:,.2f}"
-                tmaliyet_str = f"{h['T_Maliyet']:,.2f}"
-                guncel_str = f"{h['Güncel']:,.2f}"
-                deger_str = f"{h['Deger']:,.2f}"
-                gunluk_yuzde_str = f"%{h['Günlük (%)']:.2f}"
-                toplam_yuzde_str = f"%{h['Toplam (%)']:.2f}"
-                g_kz_str = f"({g_kz:,.0f})"
-                t_kz_str = f"({t_kz:,.0f})"
-    
-                dr += f'''<tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
-                    <td style="color:white !important; font-weight:500; padding:12px 15px;">{h['Emoji']} {h['Varlık']}<br><span style="font-size:0.7rem; color:#00f2ff;">{h['Portföy']}</span></td>
-                    <td style="color:white !important; padding:12px 15px;">{maliyet_str} {curr}</td>
-                    <td style="color:white !important; padding:12px 15px;">{tmaliyet_str} {curr}</td>
-                    <td style="color:white !important; padding:12px 15px;">{guncel_str} {curr}</td>
-                    <td style="color:white !important; {val_style} padding:12px 15px;">{deger_str} {curr}</td>
-                    <td class="{g_cls}" style="{g_row_cls} padding:12px 15px;">{gunluk_yuzde_str}<br><span style="font-size:0.7rem;">{g_kz_str}</span></td>
-                    <td class="{t_cls}" style="{t_row_cls} padding:12px 15px;">{toplam_yuzde_str}<br><span style="font-size:0.7rem;">{t_kz_str}</span></td>
-                </tr>'''
+                # Highlight columns if sorted
+                g_style = "background: rgba(0, 242, 255, 0.03); border-radius: 4px; padding: 2px 5px;" if sort_key == "Günlük (%)" else ""
+                t_style = "background: rgba(0, 242, 255, 0.03); border-radius: 4px; padding: 2px 5px;" if sort_key == "Toplam (%)" else ""
+                v_style = "font-weight:700; color:#00f2ff;" if sort_key == "Deger_TL" else ""
+
+                r_cols = st.columns([2.5, 2, 2, 2, 2, 1.5, 1.5, 0.8])
+                with r_cols[0]:
+                    signal_tag = '<span style="background:rgba(255, 62, 62, 0.15); color:#ff3e3e; font-size:0.6rem; padding:1px 5px; border-radius:3px; margin-left:5px; border:1px solid rgba(255, 62, 62, 0.3); font-weight:700;">SAT</span>' if h.get("Signal") else ""
+                    st.markdown(f'<div style="line-height:18px; color:white; font-weight:500; font-size:0.85rem;">{h["Emoji"]} {h["Varlık"]}{signal_tag}<br><span style="font-size:0.7rem; color:rgba(255,255,255,0.4);">{h["Portföy"]}</span></div>', unsafe_allow_html=True)
+                with r_cols[1]:
+                    st.markdown(f'<div style="line-height:40px; color:rgba(255,255,255,0.7); font-size:0.85rem;">{h["Maliyet"]:,.2f} {curr}</div>', unsafe_allow_html=True)
+                with r_cols[2]:
+                    st.markdown(f'<div style="line-height:40px; color:rgba(255,255,255,0.7); font-size:0.85rem;">{h["T_Maliyet"]:,.2f} {curr}</div>', unsafe_allow_html=True)
+                with r_cols[3]:
+                    st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem;">{h["Güncel"]:,.2f} {curr}</div>', unsafe_allow_html=True)
+                with r_cols[4]:
+                    st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem; {v_style}">{h["Deger"]:,.2f} {curr}</div>', unsafe_allow_html=True)
+                with r_cols[5]:
+                    st.markdown(f'<div style="line-height:18px; padding: 4px 0; font-size:0.85rem; {g_style}" class="{g_cls}">%{h["Günlük (%)"]:.2f}<br><span style="font-size:0.7rem; opacity:0.6;">({g_kz:,.0f})</span></div>', unsafe_allow_html=True)
+                with r_cols[6]:
+                    st.markdown(f'<div style="line-height:18px; padding: 4px 0; font-size:0.85rem; {t_style}" class="{t_cls}">%{h["Toplam (%)"]:.2f}<br><span style="font-size:0.7rem; opacity:0.6;">({t_kz:,.0f})</span></div>', unsafe_allow_html=True)
+                with r_cols[7]:
+                    st.write("") # Vertical offset
+                    if st.button("📊", key=f"chart_btn_{h['Varlık']}_{i}"):
+                        st.session_state.chart_asset = h['Varlık']
+                        # Find original type from agg_holdings to pass to TV helper
+                        orig_type = "bist hisse"
+                        for ah in agg_holdings:
+                            if ah['symbol'] == h['Varlık']:
+                                orig_type = ah.get('type', 'bist hisse')
+                                break
+                        st.session_state.chart_asset_type = orig_type
+                        st.rerun()
             
-            if dr:
-                table_html = f'''
-                <div class="glass-card" style="padding: 10px; overflow-x: auto;">
-                    <table class="modern-table" style="width:100%; border-collapse: collapse;">
-                        <thead>
-                            <tr>
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">VARLIK</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">MALİYET</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">TOPLAM ALIŞ</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">GÜNCEL</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem;">TOPLAM DEĞER</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem; {'border-left:1px solid rgba(0,242,255,0.2);' if sort_key == 'Günlük (%)' else ''}">GÜNLÜK K/Z</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:12px 15px; font-size:0.7rem; {'border-left:1px solid rgba(0,242,255,0.2);' if sort_key == 'Toplam (%)' else ''}">TOPLAM K/Z</th>
-                            </tr>
-                        </thead>
-                        <tbody>{dr}</tbody>
-                    </table>
-                </div>
-                '''
-                st.markdown(table_html, unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
     
     
 
@@ -2398,3 +2609,10 @@ if st.session_state.show_portfolio_modal: portfolio_management_dialog()
 if st.session_state.show_portfolio_details: 
     portfolio_details_dialog(st.session_state.portfolio_details_name, st.session_state.portfolio_details_data)
     st.session_state.show_portfolio_details = False  # Reset after showing
+if st.session_state.chart_asset:
+    asset_chart_dialog(st.session_state.chart_asset, st.session_state.chart_asset_type)
+    st.session_state.chart_asset = None # Reset
+
+if st.session_state.show_history_modal:
+    transaction_history_dialog()
+    st.session_state.show_history_modal = False
