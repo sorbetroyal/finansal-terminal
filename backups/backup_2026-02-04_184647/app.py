@@ -581,213 +581,187 @@ if not get_current_user():
     render_auth_page()
     st.stop()
 
-# Initialize theme BEFORE CSS
-if "theme" not in st.session_state:
-    st.session_state.theme = "dark"  # Default: Dark mode
 
-# PREMIUM MODERN DESIGN SYSTEM (v4) - DYNAMIC THEME
-# Theme Colors
-theme = st.session_state.theme
-if theme == "dark":
-    bg_primary = "#0b0e14"
-    bg_secondary = "#1a1c23"
-    bg_card = "rgba(255,255,255,0.05)"
-    bg_card_hover = "rgba(255,255,255,0.08)"
-    text_primary = "#ffffff"
-    text_secondary = "rgba(255,255,255,0.7)"
-    text_muted = "rgba(255,255,255,0.4)"
-    border_color = "rgba(255,255,255,0.1)"
-    accent_color = "#00f2ff"
-    accent_glow = "rgba(0,242,255,0.3)"
-else:  # light theme - IMPROVED CONTRAST
-    bg_primary = "#f8f9fa"
-    bg_secondary = "#ffffff"
-    bg_card = "rgba(255, 255, 255, 0.95)"  # More opaque cards
-    bg_card_hover = "rgba(0, 0, 0, 0.08)"  # Stronger hover
-    text_primary = "#0a0a0a"  # Much darker for readability
-    text_secondary = "rgba(0, 0, 0, 0.75)"  # Darker secondary
-    text_muted = "rgba(0, 0, 0, 0.55)"  # Darker muted
-    border_color = "rgba(0, 0, 0, 0.15)"  # Stronger borders
-    accent_color = "#0055ff"  # More vibrant blue
-    accent_glow = "rgba(0, 85, 255, 0.25)"  # Stronger glow
-
-st.markdown(f"""
+# PREMIUM MODERN DESIGN SYSTEM (v4)
+st.markdown("""
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <style>
-    /* 1. Global & Background */
+    /* 1. Global & Deep Space Background */
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
-    * {{ font-family: 'Outfit', sans-serif !important; }}
+    * { font-family: 'Outfit', sans-serif !important; }
     
-    header[data-testid="stHeader"] {{ display: none !important; }}
+    header[data-testid="stHeader"] { display: none !important; }
     
-    html, body, [data-testid="stAppViewContainer"], .stApp, [data-testid="stAppViewBlockContainer"], .block-container {{
-        background-color: {bg_primary} !important;
+    html, body, [data-testid="stAppViewContainer"], .stApp, [data-testid="stAppViewBlockContainer"], .block-container {
+        background-color: #0b0e14 !important;
         padding-top: 0rem !important;
         margin-top: 0rem !important;
-        color: {text_primary} !important;
-    }}
+        color: white !important;
+    }
 
-    .main .block-container {{ 
+    .main .block-container { 
         padding-left: 0 !important;
         padding-right: 0 !important;
         max-width: 100% !important; 
         min-height: 100vh;
-    }}
+    }
 
     /* Selectbox Visibility Fix */
-    div[data-baseweb="select"] > div {{
-        background-color: {bg_card} !important;
-        border: 1px solid {border_color} !important;
-        color: {text_primary} !important;
+    div[data-baseweb="select"] > div {
+        background-color: rgba(255,255,255,0.05) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        color: white !important;
         font-weight: 600 !important;
-    }}
-    [data-baseweb="popover"] ul {{
-        background-color: {bg_secondary} !important;
-        border: 1px solid {border_color} !important;
-    }}
-    [data-baseweb="popover"] li {{
-        background-color: {bg_secondary} !important;
-        color: {text_primary} !important;
+    }
+    /* ULTIMATE SELECTBOX LIST VISIBILITY FIX */
+    [data-baseweb="popover"] ul {
+        background-color: #1a1c23 !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    }
+    [data-baseweb="popover"] li {
+        background-color: #1a1c23 !important;
+        color: #FFFFFF !important;
         font-family: 'Outfit', sans-serif !important;
-    }}
-    [data-baseweb="popover"] li:hover {{
-        background-color: {accent_color} !important;
-        color: {bg_primary} !important;
-    }}
-    div.stSelectbox div[role="listbox"] {{
-        background-color: {bg_secondary} !important;
-    }}
-    div[data-baseweb="select"] svg {{
-        fill: {text_primary} !important;
-    }}
+    }
+    [data-baseweb="popover"] li:hover {
+        background-color: #00f2ff !important;
+        color: #0b0e14 !important;
+    }
+    /* Simple fallback for any other dropdown type */
+    div.stSelectbox div[role="listbox"] {
+        background-color: #1a1c23 !important;
+    }
+    div[data-baseweb="select"] svg {
+        fill: white !important;
+    }
 
     /* Modal Close Button Fix */
-    div[data-testid="stDialog"] button[aria-label="Close"] {{
-        color: {text_primary} !important;
+    div[data-testid="stDialog"] button[aria-label="Close"] {
+        color: white !important;
         opacity: 1 !important;
-        background-color: {bg_card} !important;
+        background-color: rgba(255,255,255,0.1) !important;
         border-radius: 50%;
         transition: all 0.2s;
-    }}
-    div[data-testid="stDialog"] button[aria-label="Close"]:hover {{
+    }
+    div[data-testid="stDialog"] button[aria-label="Close"]:hover {
         background-color: rgba(255, 62, 62, 0.8) !important;
         transform: scale(1.1);
-    }}
-    div[data-testid="stDialog"] button[aria-label="Close"] svg {{
+    }
+    div[data-testid="stDialog"] button[aria-label="Close"] svg {
         fill: white !important;
         stroke: white !important;
-    }}
+    }
 
-    .glass-nav {{
+    .glass-nav {
         position: sticky;
         top: 0;
         z-index: 999999;
-        background: {f'rgba(11, 14, 20, 0.95)' if theme == 'dark' else 'rgba(248, 249, 250, 0.95)'};
+        background: rgba(11, 14, 20, 0.95);
         backdrop-filter: blur(20px);
-        border-bottom: 1px solid {border_color};
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         padding: 5px 20px;
         display: flex;
         justify-content: space-between;
         align-items: center;
         height: 50px;
-    }}
+    }
 
-    .glass-card {{
-        background: {f'rgba(23, 27, 33, 0.7)' if theme == 'dark' else 'rgba(255, 255, 255, 0.9)'};
+    .glass-card {
+        background: rgba(23, 27, 33, 0.7);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        border: 1px solid {border_color};
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 16px;
-        box-shadow: 0 8px 32px 0 {f'rgba(0, 0, 0, 0.4)' if theme == 'dark' else 'rgba(0, 0, 0, 0.08)'};
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
         margin-bottom: 20px;
-    }}
+    }
     
-    .text-glow-green {{ color: #00ff88 !important; text-shadow: 0 0 10px rgba(0, 255, 136, 0.3) !important; }}
-    .text-glow-red {{ color: #ff3e3e !important; text-shadow: 0 0 10px rgba(255, 62, 62, 0.3) !important; }}
-    .text-glow-cyan {{ color: {accent_color} !important; text-shadow: 0 0 10px {accent_glow} !important; }}
+    .text-glow-green { color: #00ff88 !important; text-shadow: 0 0 10px rgba(0, 255, 136, 0.3) !important; }
+    .text-glow-red { color: #ff3e3e !important; text-shadow: 0 0 10px rgba(255, 62, 62, 0.3) !important; }
+    .text-glow-cyan { color: #00f2ff !important; text-shadow: 0 0 10px rgba(0, 242, 255, 0.3) !important; }
     
-    .metric-label {{ color: {text_muted}; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }}
-    .metric-value {{ color: {text_primary}; font-size: 1.4rem; font-weight: 700; margin-top: 5px; }}
+    .metric-label { color: rgba(255,255,255,0.4); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+    .metric-value { color: white; font-size: 1.4rem; font-weight: 700; margin-top: 5px; }
 
     /* Active Tab Button Styling (Primary) */
-    div.stButton > button[kind="primary"] {{
+    div.stButton > button[kind="primary"] {
         background-color: transparent !important;
-        color: {accent_color} !important;
+        color: #00f2ff !important;
         border: none !important;
-        border-bottom: 2px solid {accent_color} !important;
+        border-bottom: 2px solid #00f2ff !important;
         border-radius: 0 !important;
         font-weight: 700 !important;
         box-shadow: none !important;
-    }}
-    div.stButton > button[kind="secondary"] {{
+    }
+    div.stButton > button[kind="secondary"] {
         background-color: transparent !important;
         border: none !important;
-        color: {text_secondary} !important;
+        color: rgba(255,255,255,0.6) !important;
         box-shadow: none !important;
-    }}
-    div.stButton > button:focus {{
-        color: {text_primary} !important;
+    }
+    div.stButton > button:focus {
+        color:white !important;
         border-color: transparent !important;
         box-shadow: none !important;
-    }}
+    }
 
-    .ticker-bar {{
-        background: {bg_card};
-        border-bottom: 1px solid {border_color};
+    .ticker-bar {
+        background: rgba(255, 255, 255, 0.02);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         padding: 8px 0;
         overflow: hidden;
         white-space: nowrap;
         width: 100%;
-    }}
-    .ticker-wrapper {{
+    }
+    .ticker-wrapper {
         display: inline-block;
         animation: ticker 60s linear infinite;
-    }}
-    @keyframes ticker {{
-        0% {{ transform: translateX(0); }}
-        100% {{ transform: translateX(-50%); }}
-    }}
-    .ticker-item {{
+    }
+    @keyframes ticker {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+    }
+    .ticker-item {
         display: inline-block;
         margin-right: 40px;
         font-size: 0.85rem;
         font-weight: 600;
-    }}
+    }
     
-    .nav-tab {{
-        color: {text_muted};
+    .nav-tab {
+        color: rgba(255, 255, 255, 0.4);
         font-weight: 600;
         font-size: 0.85rem;
         padding: 5px 0;
         cursor: pointer;
         transition: all 0.3s;
         border-bottom: 2px solid transparent;
-    }}
-    .nav-tab.active {{
-        color: {accent_color};
-        border-bottom: 2px solid {accent_color};
-    }}
-    .nav-tab:hover {{
-        color: {text_primary};
-    }}
+    }
+    .nav-tab.active {
+        color: #00f2ff;
+        border-bottom: 2px solid #00f2ff;
+    }
+    .nav-tab:hover {
+        color: white;
+    }
 
-    .flex {{ display: flex; }}
-    .gap-6 {{ gap: 1.5rem; }}
-    .mb-8 {{ margin-bottom: 2rem; }}
+    .flex { display: flex; }
+    .gap-6 { gap: 1.5rem; }
+    .mb-8 { margin-bottom: 2rem; }
     
-    .metric-card {{
+    .metric-card {
         padding: 20px;
         flex: 1;
         text-align: center;
         min-width: 150px;
-    }}
+    }
 
-    .modern-table {{
+    .modern-table {
         width: 100%;
         border-collapse: collapse;
         margin-top: 10px;
-    }}
-    .modern-table th {{
+    }
+    .modern-table th {
         text-align: left;
         color: rgba(255, 255, 255, 0.4);
         font-size: 0.75rem;
@@ -796,22 +770,22 @@ st.markdown(f"""
         letter-spacing: 1px;
         padding: 12px 15px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }}
-    .modern-table td {{
+    }
+    .modern-table td {
         padding: 15px;
         font-size: 0.85rem;
         color: rgba(255, 255, 255, 0.8);
         border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    }}
-    .modern-table tr:hover {{
+    }
+    .modern-table tr:hover {
         background: rgba(255, 255, 255, 0.02);
-    }}
+    }
 
-    div.stButton > button, div.stButton > button p, div.stButton > button span {{
+    div.stButton > button, div.stButton > button p, div.stButton > button span {
         white-space: nowrap !important;
         font-size: 0.78rem !important;
-    }}
-    div.stButton > button {{
+    }
+    div.stButton > button {
         background: rgba(255, 255, 255, 0.03) !important;
         border: 1px solid rgba(255, 255, 255, 0.05) !important;
         border-radius: 8px !important;
@@ -821,31 +795,31 @@ st.markdown(f"""
         min-height: 38px !important;
         height: 38px !important;
         width: auto !important;
-    }}
-    div.stButton > button:hover {{
+    }
+    div.stButton > button:hover {
         background: rgba(0, 242, 255, 0.1) !important;
         border-color: #00f2ff !important;
-    }}
+    }
     
     /* Segmented Control Dark Theme */
-    div[data-baseweb="segmented-control"] {{
+    div[data-baseweb="segmented-control"] {
         background: rgba(23, 27, 33, 0.9) !important;
         border: 1px solid rgba(255, 255, 255, 0.15) !important;
         border-radius: 8px !important;
-    }}
-    div[data-baseweb="segmented-control"] button {{
+    }
+    div[data-baseweb="segmented-control"] button {
         background: transparent !important;
         color: rgba(255, 255, 255, 0.5) !important;
         font-weight: 600 !important;
         font-size: 0.8rem !important;
-    }}
-    div[data-baseweb="segmented-control"] button[aria-checked="true"] {{
+    }
+    div[data-baseweb="segmented-control"] button[aria-checked="true"] {
         background: rgba(0, 242, 255, 0.25) !important;
         color: #00f2ff !important;
-    }}
-    div[data-baseweb="segmented-control"] button:hover {{
+    }
+    div[data-baseweb="segmented-control"] button:hover {
         color: white !important;
-    }}
+    }
     
     /* ULTIMATE INPUT UNIFICATION */
     /* Target every possible text container in these widgets */
@@ -854,7 +828,7 @@ st.markdown(f"""
     div[data-baseweb="select"] [data-testid="stMarkdownContainer"] p,
     div[data-baseweb="select"] div[aria-selected="true"],
     div[data-baseweb="select"] span,
-    div[data-baseweb="input"] input {{
+    div[data-baseweb="input"] input {
         font-size: 0.9rem !important;
         font-weight: 600 !important; /* Semi-Bold for all */
         font-family: 'Outfit', sans-serif !important;
@@ -863,27 +837,27 @@ st.markdown(f"""
         line-height: 45px !important;
         padding-top: 0 !important;
         padding-bottom: 0 !important;
-    }}
+    }
 
     /* Container Box Consistency - Flexible height for multiselect */
     div[data-baseweb="select"] > div,
     div[data-baseweb="input"],
     div[data-baseweb="base-input"],
     div[data-testid="stTextInput"] > div > div,
-    div[data-testid="stNumberInput"] > div > div {{
+    div[data-testid="stNumberInput"] > div > div {
         background-color: #1a1c23 !important; 
         border: 1px solid rgba(255, 255, 255, 0.15) !important;
         border-radius: 8px !important;
         min-height: 45px !important; /* Allowed to grow */
         height: auto !important;
-    }}
+    }
 
     /* Target the text/input elements inside - remove forced line-height that prevents wrapping */
     div[data-testid="stTextInput"] input,
     div[data-testid="stNumberInput"] input,
     div[data-baseweb="select"] [data-testid="stMarkdownContainer"] p,
     div[data-baseweb="select"] div[aria-selected="true"],
-    div[data-baseweb="select"] span {{
+    div[data-baseweb="select"] span {
         font-size: 0.9rem !important;
         font-weight: 600 !important;
         font-family: 'Outfit', sans-serif !important;
@@ -891,78 +865,78 @@ st.markdown(f"""
         -webkit-text-fill-color: #FFFFFF !important;
         padding-top: 5px !important; /* Balanced padding for multi-line */
         padding-bottom: 5px !important;
-    }}
+    }
 
     /* Placeholder Unification */
     ::placeholder,
-    div[data-baseweb="select"] [data-baseweb="select"] div[aria-hidden="true"] {{
+    div[data-baseweb="select"] [data-baseweb="select"] div[aria-hidden="true"] {
         color: rgba(255, 255, 255, 0.4) !important;
         -webkit-text-fill-color: rgba(255, 255, 255, 0.4) !important;
         font-weight: 600 !important;
-    }}
+    }
     
     /* Remove borders and paddings from inner inputs */
     div[data-testid="stTextInput"] input,
-    div[data-testid="stNumberInput"] input {{
+    div[data-testid="stNumberInput"] input {
         border: none !important;
         background: transparent !important;
         padding-left: 12px !important;
         outline: none !important;
-    }}
+    }
 
     div[data-testid="stTextInput"] label,
-    div[data-testid="stNumberInput"] label {{
+    div[data-testid="stNumberInput"] label {
         color: rgba(255, 255, 255, 0.5) !important;
         font-size: 0.8rem !important;
         font-weight: 500 !important;
         margin-bottom: 4px !important;
-    }}
+    }
 
     /* Hide number input spinners and step buttons */
-    div[data-testid="stNumberInput"] button {{
+    div[data-testid="stNumberInput"] button {
         display: none !important;
-    }}
+    }
 
     /* DIALOG & MODAL UNIFICATION (v4) */
-    div[data-testid="stDialog"] > div:first-child, div[role="dialog"] {{
+    div[data-testid="stDialog"] > div:first-child, div[role="dialog"] {
         background-color: #0b0e14 !important;
         border: 1px solid rgba(0, 242, 255, 0.1) !important;
         box-shadow: 0 0 50px rgba(0, 0, 0, 0.8) !important;
-    }}
+    }
     
     div[data-testid="stDialog"] h1, 
     div[data-testid="stDialog"] h2, 
     div[data-testid="stDialog"] h3, 
     div[data-testid="stDialog"] p, 
     div[data-testid="stDialog"] label, 
-    div[data-testid="stDialog"] span {{
+    div[data-testid="stDialog"] span {
         color: #FFFFFF !important;
-    }}
+    }
 
     /* MULTISELECT PILLS (TAGS) UNIFICATION */
-    div[data-baseweb="tag"] {{
+    div[data-baseweb="tag"] {
         background-color: rgba(0, 242, 255, 0.15) !important;
         border: 1px solid rgba(0, 242, 255, 0.3) !important;
         border-radius: 4px !important;
-    }}
-    div[data-baseweb="tag"] span {{
+    }
+    div[data-baseweb="tag"] span {
         color: #00f2ff !important;
         font-weight: 600 !important;
-    }}
-    div[data-baseweb="tag"] svg {{
+    }
+    div[data-baseweb="tag"] svg {
         fill: #00f2ff !important;
-    }}
+    }
     
     /* FORM & TAB UNIFICATION IN DIALOGS */
-    div[data-testid="stDialog"] .stTabs [data-baseweb="tab-list"] {{ background-color: transparent !important; }}
-    div[data-testid="stDialog"] .stTabs [data-baseweb="tab"] {{ color: rgba(255,255,255,0.4) !important; }}
-    div[data-testid="stDialog"] .stTabs [aria-selected="true"] {{ color: #00f2ff !important; border-bottom-color: #00f2ff !important; }}
+    div[data-testid="stDialog"] .stTabs [data-baseweb="tab-list"] { background-color: transparent !important; }
+    div[data-testid="stDialog"] .stTabs [data-baseweb="tab"] { color: rgba(255,255,255,0.4) !important; }
+    div[data-testid="stDialog"] .stTabs [aria-selected="true"] { color: #00f2ff !important; border-bottom-color: #00f2ff !important; }
     
-    div[data-testid="stForm"] {{
+    div[data-testid="stForm"] {
         background-color: rgba(255,255,255,0.02) !important;
         border: 1px solid rgba(255,255,255,0.05) !important;
         border-radius: 12px !important;
-    }}
+    }
 </style>
 
 """, unsafe_allow_html=True)
@@ -1062,7 +1036,6 @@ with nav_cols[1]:
             st.session_state.show_portfolio_modal = True
             st.session_state.show_asset_modal = False
     with btn_cols[2]:
-        # Logout button (Theme toggle removed - dark theme only)
         if st.button("🚪 ÇIKIŞ", use_container_width=True):
             logout()
             st.rerun()
