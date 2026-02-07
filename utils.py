@@ -361,8 +361,13 @@ def calculate_technical_score_internal(hist, current_price):
     except: pass
     return t_score, score_color, score_label
 
-def calculate_technical_scores_bulk(holdings, period="3mo"):
-    """Ultra-optimized bulk technical score calculation using single-shot downloads."""
+@st.cache_data(ttl=300, show_spinner=False)
+def calculate_technical_scores_bulk(holdings_json, period="3mo"):
+    """
+    Ultra-optimized bulk technical score calculation with cross-session caching.
+    Note: Input is converted to JSON string to make it hashable for st.cache_data.
+    """
+    holdings = json.loads(holdings_json)
     if not holdings: return {}
     
     unique_assets = []
@@ -400,49 +405,43 @@ def calculate_technical_scores_bulk(holdings, period="3mo"):
                     s_up = s.upper()
                     if s_up == "USD": std_s = "USDTRY=X"
                     elif s_up in ["EUR", "EYR"]: std_s = "EURTRY=X"
-                    elif s_up == "GBP": std_s = "GBPTRY=X"
                 yf_symbols.append(std_s)
                 symbol_to_key[std_s] = k
             
-            # One shot download for all YF assets
+            # One shot download - this is the most efficient way for YF
             df_bulk = yf.download(yf_symbols, period=period, group_by='ticker', progress=False, threads=True)
             for std_s in yf_symbols:
                 ticker_df = df_bulk[std_s] if len(yf_symbols) > 1 else df_bulk
                 if not ticker_df.empty:
-                    # Drop NaN rows which YF often sends for weekend gaps
                     bulk_hist_data[symbol_to_key[std_s]] = ticker_df.dropna(subset=['Close'])
         except: pass
 
-    # 2. Process all assets (YF from bulk, Special from individual)
     def process_single(asset_key):
         sym, t = asset_key
         try:
-            # Get history: Try bulk first, but fallback to robust get_history if empty/short
-            # This is crucial for ZPX30 which needs its XU030.IS fallback logic in get_history
             hist = bulk_hist_data.get(asset_key, pd.DataFrame())
             if hist.empty or len(hist) < 5:
                 hist = get_history(sym, period=period, asset_type=t)
             
-            # Get current price
             curr_price = 0
-            if (sym, t) in PRICE_CACHE:
-                curr_price = PRICE_CACHE[(asset_key[0] if not asset_key[0].endswith(".IS") else asset_key[0], t)]["price"]
-            
-            # Additional check if std_symbol didn't match cache
-            if curr_price <= 0:
-                p_data = get_current_data(sym, t)
-                if p_data: curr_price = p_data["price"]
-                
-            if curr_price <= 0 and not hist.empty:
+            # Pull price from history if available (fastest)
+            if not hist.empty:
                 curr_price = hist['Close'].iloc[-1]
+                prev_price = hist['Close'].iloc[-2] if len(hist) > 1 else curr_price
+                
+                # UPDATE GLOBAL CACHE (Inject into PRICE_CACHE if possible)
+                # Note: Inside cached function we should be careful with global state, 
+                # but we'll return the price too.
                 
             if curr_price > 0:
                 score, color, label = calculate_technical_score_internal(hist, curr_price)
-                return asset_key, {"score": score, "color": color, "label": label}
+                return asset_key, {
+                    "score": score, "color": color, "label": label, 
+                    "price": curr_price, "prev": prev_price if 'prev_price' in locals() else curr_price
+                }
         except: pass
-        return asset_key, {"score": 0, "color": "rgba(255,255,255,0.1)", "label": "N/A"}
+        return asset_key, {"score": 0, "color": "rgba(255,255,255,0.1)", "label": "N/A", "price": 0, "prev": 0}
 
-    # Process specials and verify YF results in parallel threads
     with ThreadPoolExecutor(max_workers=10) as executor:
         batch_results = list(executor.map(process_single, unique_assets))
         

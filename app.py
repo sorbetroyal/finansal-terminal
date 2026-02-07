@@ -1668,11 +1668,29 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
 
     # --- PERFORMANCE OPTIMIZATION: PARALLEL FETCH & SCORE ---
     if agg_holdings:
-        # 1. Warm price cache in parallel
-        fetch_all_prices_parallel(agg_holdings)
-        # 2. Warm technical scores in parallel
+        # 1. Fetch scores in bulk with Caching (TTL 5 mins)
+        # Convert to JSON to make it hashable for st.cache_data
+        h_json = json.dumps(agg_holdings, default=str)
         with st.spinner("Teknik Analiz Motoru Hazırlanıyor..."):
-            bulk_scores = calculate_technical_scores_bulk(agg_holdings)
+            bulk_scores = calculate_technical_scores_bulk(h_json)
+            
+        # 2. SEAMLESS INJECTION: Pre-warm PRICE_CACHE with bulk results to avoid extra calls in loop
+        for (bs_sym, bs_type), bs_data in bulk_scores.items():
+            if bs_data.get("price", 0) > 0:
+                # Standardize key for injection
+                std_s = bs_sym
+                if "bist" in bs_type.lower() and not std_s.endswith(".IS"): std_s = f"{std_s}.IS"
+                elif "kripto" in bs_type.lower() and "-" not in std_s: std_s = f"{std_s}-USD"
+                elif "döviz" in bs_type.lower():
+                    s_up = bs_sym.upper()
+                    if s_up == "USD": std_s = "USDTRY=X"
+                    elif s_up in ["EUR", "EYR"]: std_s = "EURTRY=X"
+                
+                PRICE_CACHE[(std_s, bs_type.lower())] = {
+                    "price": bs_data["price"],
+                    "prev_close": bs_data["prev"],
+                    "change_pct": ((bs_data["price"]/bs_data["prev"])-1)*300 if bs_data["prev"] else 0
+                }
     else:
         bulk_scores = {}
 
@@ -1684,8 +1702,8 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
         if len(m_data["portfolios"]) > 1:
             p_names = f"{len(m_data['portfolios'])} Portföy" 
 
-        d = get_current_data(sym, m_data.get("type"))
         t = m_data.get("type", "").lower()
+        d = get_current_data(sym, t) # This will now hit PRICE_CACHE instantly
         cat_idx, currency, cat_emoji = get_asset_details(sym, t)
         
         if d:
@@ -1696,7 +1714,7 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
             rate = usd_rate if currency == "USD" else 1.0
             v = p_val_orig * rate
             
-            # Use pre-calculated bulk score
+            # Use pre-calculated bulk score (instant)
             score_data = bulk_scores.get((sym, t), {"score": 0.0, "color": "rgba(255,255,255,0.1)", "label": "N/A"})
             t_score = score_data["score"]
             score_color = score_data["color"]
