@@ -32,11 +32,25 @@ Google Gemini yapay zekası ile portföyünüzü güçlendirin.
 - **Haber Analizi:** Piyasayı etkileyen son haberleri derler ve yorumlar.
 - **Sohbet Modu:** Finansal sorularınızı yapay zekaya sorun, anında yanıt alın.
 
-### 4. 📊 Teknik Analiz & Grafikler
-- **TradingView Entegrasyonu:** Profesyonel grafikler ve indikatörlerle derinlemesine analiz yapın.
-- **Özel İndikatörler:** RSI, MACD, Bollinger Bantları gibi popüler indikatörleri tek tıkla uygulayın.
+### 4. 🔭 İzleme Listesi (Smart Watchlist)
+Varlıklarınızı sadece fiyatıyla değil, teknik gücüyle takip edin.
+- **Akıllı Teknik Skor (0-10):** Supertrend, KAMA, OBV ve ADX indikatörlerini harmanlayan, momentum dostu özel bir puanlama algoritması.
+- **"Elmas" Giriş Tespiti:** Sadece yükselen değil, aynı zamanda trend desteğine (KAMA/ST) yakın olan "ideal giriş" noktalarındaki varlıkları parlatır.
+- **Otomatik Sıralama:** Listenizdeki varlıklar teknik potansiyeline göre (En güçlüden zayıfa) saniyeler içinde otomatik olarak sıralanır.
+- **TEFAS Fon Analizi:** Normalde teknik analiz yapılamayan TEFAS fonları için özel geliştirilmiş sentetik veri motoru ile indikatör desteği.
+- **Zenginleştirilmiş Kartlar:** Sparkline grafikler, her indikatör için özel renk kodlu badge'ler ve trend şiddetine duyarlı ADX göstergeleri.
 
-### 5. 🔔 Haberler & Bildirimler
+### 5. 🤖 AI Destekli Portföy Analizi (Gemini)
+Google Gemini yapay zekası ile portföyünüzü güçlendirin.
+- **Portföy Yorumu:** Varlık dağılımınızı analiz edip risk ve fırsatları raporlar.
+- **Haber Analizi:** Piyasayı etkileyen son haberleri derler ve yorumlar.
+- **Sohbet Modu:** Finansal sorularınızı yapay zekaya sorun, anında yanıt alın.
+
+### 6. 📊 Teknik Analiz & Grafikler
+- **TradingView Entegrasyonu:** Profesyonel grafikler ve indikatörlerle derinlemesine analiz yapın.
+- **Özel İndikatörler:** RSI, MACD, Bollinger Bantları, Supertrend, KAMA ve daha fazlası.
+
+### 7. 🔔 Haberler & Bildirimler
 - **KAP Haberleri:** Borsa İstanbul şirketlerinden gelen son dakika bildirimleri (KAP).
 - **Ekonomik Takvim:** Önemli ekonomik verileri ve açıklamaları takip edin.
 
