@@ -1014,24 +1014,55 @@ st.markdown(f"""
         background: rgba(255, 255, 255, 0.02);
     }}
 
-    div.stButton > button, div.stButton > button p, div.stButton > button span {{
+    /* GLOBAL BUTTON UNIFICATION (Fix for White Buttons on Cloud) */
+    div.stButton > button, 
+    button[data-testid="stBaseButton-secondary"],
+    button[data-testid="stBaseButton-primary"],
+    button[data-testid="stBaseButton-action"] {{
         white-space: nowrap !important;
         font-size: 0.78rem !important;
-    }}
-    div.stButton > button {{
-        background: rgba(255, 255, 255, 0.03) !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        border-radius: 8px !important;
-        color: rgba(255, 255, 255, 0.7) !important;
         font-weight: 600 !important;
-        padding: 0px 15px !important;
+        border-radius: 8px !important;
         min-height: 38px !important;
         height: 38px !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         width: auto !important;
     }}
-    div.stButton > button:hover {{
-        background: rgba(0, 242, 255, 0.1) !important;
+
+    /* Ensure text and icons inside inherit color */
+    div.stButton > button p, div.stButton > button span {{
+        color: inherit !important;
+        font-family: 'Outfit', sans-serif !important;
+    }}
+
+    /* Standard/Secondary Buttons */
+    div.stButton > button, button[data-testid="stBaseButton-secondary"] {{
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: rgba(255, 255, 255, 0.8) !important;
+    }}
+
+    /* Primary Buttons (Neon Cyan) */
+    button[data-testid="stBaseButton-primary"] {{
+        background: rgba(0, 242, 255, 0.08) !important;
+        border: 1px solid rgba(0, 242, 255, 0.3) !important;
+        color: #00f2ff !important;
+        box-shadow: 0 0 15px rgba(0, 242, 255, 0.05) !important;
+    }}
+
+    /* Hover Effects */
+    div.stButton > button:hover, 
+    button[data-testid="stBaseButton-secondary"]:hover {{
+        background: rgba(255, 255, 255, 0.1) !important;
+        border-color: rgba(255, 255, 255, 0.3) !important;
+        color: white !important;
+    }}
+
+    button[data-testid="stBaseButton-primary"]:hover {{
+        background: rgba(0, 242, 255, 0.15) !important;
         border-color: #00f2ff !important;
+        box-shadow: 0 0 20px rgba(0, 242, 255, 0.2) !important;
+        color: white !important;
     }}
     
     /* Segmented Control Dark Theme */
