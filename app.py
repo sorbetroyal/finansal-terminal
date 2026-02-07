@@ -1410,128 +1410,44 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
         if not w_list:
              st.info("İzleme listeniz boş. Sağ taraftan varlık ekleyebilirsiniz.")
         else:
-            if "watchlist_data_loaded" not in st.session_state:
-                st.session_state.watchlist_data_loaded = False
-                
-            if not st.session_state.watchlist_data_loaded:
-                with st.spinner("İzleme listesi güncelleniyor..."):
-                    # Prepare data for parallel fetch
-                    to_fetch = [{"symbol": x["symbol"], "type": x["type"]} for x in w_list]
-                    fetch_all_prices_parallel(to_fetch)
-                    st.session_state.watchlist_data_loaded = True
+            # Prepare Watchlist for Bulk Engine
+            w_fetch = [{"symbol": x["symbol"], "type": x["type"]} for x in w_list]
+            w_json = json.dumps(w_fetch, default=str)
             
+            with st.spinner("İzleme listesi verileri analiz ediliyor..."):
+                w_bulk = calculate_technical_scores_bulk(w_json)
+
             # Pre-calculate data and scores for sorting
             enriched_watchlist = []
             for item in w_list:
                 s = item["symbol"]
                 t = item["type"]
-                # Get Data
-                data = get_current_data(s, t)
-                price = data["price"] if data else 0
-                prev = data["prev_close"] if data else 0
+                # Get Pre-calculated data
+                res = w_bulk.get((s, t), {})
+                if not res or "error" in res: continue
+
+                price = res["price"]
+                prev = res["prev"]
                 pct = ((price / prev) - 1) * 100 if prev > 0 else 0
                 color = "#00ff88" if pct > 0 else ("#ff3e3e" if pct < 0 else "white")
                 sign = "+" if pct > 0 else ""
                 cat_idx, currency, emoji = get_asset_details(s, t)
 
-                # Fetch history for indicators
-                s_strip = s.strip()
-                hist = get_history(s_strip, period="3mo", asset_type=t)
+                # Use pre-calculated indicators
+                st_data = res.get("st")
+                kama_data = res.get("kama")
+                obv_data = res.get("obv")
+                adx_data = res.get("adx")
+                t_score = res.get("score", 0.0)
+                score_color = res.get("color", "rgba(255,255,255,0.1)")
+                score_label = res.get("label", "N/A")
+
+                # Generate Sparkline from pre-calculated points
                 sparkline_svg = ""
-                st_data = {"val": 0, "dist": 0, "color": "rgba(255,255,255,0.1)", "bg": "rgba(255,255,255,0.05)"}
-                kama_data = {"val": 0, "dist": 0, "color": "rgba(255,255,255,0.1)", "bg": "rgba(255,255,255,0.05)"}
-                obv_data = {"trend": "Nötr", "color": "rgba(255,255,255,0.1)", "bg": "rgba(255,255,255,0.05)"}
-                adx_data = {"val": 0, "label": "ZAYIF", "color": "rgba(255,255,255,0.2)", "bg": "rgba(255,255,255,0.05)"}
-                t_score = 0.0
-                score_color = "rgba(255,255,255,0.1)"
-                score_label = "N/A"
-
-                if not hist.empty and len(hist) > 2:
-                    try:
-                        closes = hist['Close'].tail(30).values
-                        if len(closes) > 1:
-                            min_c, max_c = min(closes), max(closes); range_c = max_c - min_c if max_c != min_c else 1
-                            sw, sh = 100, 30; points = []
-                            for i, val in enumerate(closes):
-                                x = (i / (len(closes) - 1)) * sw
-                                y = sh - ((val - min_c) / range_c) * sh
-                                points.append(f"{x:.1f},{y:.1f}")
-                            stroke = "#00ff88" if closes[-1] >= closes[0] else "#ff3e3e"
-                            sparkline_svg = f'<svg width="{sw}" height="{sh}" style="margin: 0 10px;"><polyline points="{" ".join(points)}" fill="none" stroke="{stroke}" stroke-width="2" /></svg>'
-                    except: pass
-
-                    try:
-                        st_series = calculate_supertrend(hist)
-                        if not st_series.empty:
-                            l_st = st_series.iloc[-1]
-                            if l_st > 0:
-                                st_dist = ((price / l_st) - 1) * 100
-                                st_color = "#00ff88" if price > l_st else "#ff3e3e"
-                                st_data = {"val": l_st, "dist": st_dist, "color": st_color, "bg": f"{st_color}20"}
-                        
-                        kama_series = calculate_kama(hist, period=min(21, len(hist)-2))
-                        if not kama_series.empty:
-                            l_kama = kama_series.iloc[-1]
-                            if l_kama > 0:
-                                kama_dist = ((price / l_kama) - 1) * 100
-                                kama_color = "#00ff88" if price > l_kama else "#ff3e3e"
-                                kama_data = {"val": l_kama, "dist": kama_dist, "color": kama_color, "bg": f"{kama_color}20"}
-                        
-                        obv_series = calculate_obv(hist)
-                        if not obv_series.empty and len(obv_series) > 1:
-                            l_obv = obv_series.iloc[-1]; p_obv = obv_series.iloc[-2]
-                            obv_trend = "Yükselen" if l_obv >= p_obv else "Düşen"
-                            obv_color = "#00ff88" if obv_trend == "Yükselen" else "#ff3e3e"
-                            obv_data = {"trend": obv_trend, "color": obv_color, "bg": f"{obv_color}20"}
-
-                        adx_series = calculate_adx(hist); l_adx = 0
-                        if not adx_series.empty:
-                            l_adx = adx_series.iloc[-1]; is_uptrend = price > l_kama if kama_data["val"] > 0 else True
-                            if l_adx < 20: adx_label, adx_col, adx_bg = "ZAYIF", "#cccccc", "rgba(100, 100, 100, 0.2)"
-                            elif l_adx < 25:
-                                adx_label = "ORTA"
-                                if is_uptrend: adx_col, adx_bg = "#b0ffb0", "rgba(0, 200, 100, 0.2)"
-                                else: adx_col, adx_bg = "#ffb0b0", "rgba(200, 0, 0, 0.2)"
-                            elif l_adx < 50:
-                                adx_label = "GÜÇLÜ"
-                                if is_uptrend: adx_col, adx_bg = "#00ff88", "rgba(0, 80, 40, 0.5)"
-                                else: adx_col, adx_bg = "#ff4444", "rgba(80, 0, 0, 0.5)"
-                            else:
-                                adx_label = "ÇOK GÜÇLÜ"
-                                if is_uptrend: adx_col, adx_bg = "#39ff14", "rgba(57, 255, 20, 0.4)"
-                                else: adx_col, adx_bg = "#ff0000", "rgba(255, 0, 0, 0.4)"
-                            adx_data = {"val": l_adx, "label": adx_label, "color": adx_col, "bg": adx_bg}
-
-                        # TECHNICAL SCORE
-                        st_above = price > st_data["val"] and st_data["val"] > 0
-                        kama_above = price > kama_data["val"] and kama_data["val"] > 0
-                        if st_above: t_score += 3.0
-                        if kama_above: t_score += 2.0
-                        if st_above:
-                            d = st_data["dist"]
-                            if d <= 4.0: t_score += 1.5
-                            elif d <= 12.0: t_score += 1.0
-                            else: t_score += 0.4
-                        if kama_above:
-                            d = kama_data["dist"]
-                            if d <= 2.0: t_score += 1.5
-                            elif d <= 8.0: t_score += 1.0
-                            else: t_score += 0.3
-                        if st_above and kama_above:
-                            if l_adx > 25: t_score += 1.0
-                            if l_adx > 45: t_score += 1.0
-                            if obv_data["trend"] == "Yükselen": t_score += 1.0
-                        else:
-                            if not st_above and not kama_above and l_adx > 30: t_score -= 2.0
-                        t_score = max(0, min(10, t_score))
-                        if not st_above and not kama_above:
-                            score_color = "#ff3e3e"
-                            score_label = "TEHLİKE" if l_adx > 40 else "ZAYIF"
-                        else:
-                            score_color = "#ff3e3e" if t_score < 4 else ("#ffcc00" if t_score < 7.5 else "#00ff88")
-                            score_label = "ZAYIF" if t_score < 4 else ("ORTA" if t_score < 7.5 else "GÜÇLÜ")
-                            if t_score >= 9.0: score_label = "ELMAS"
-                    except: pass
+                pts = res.get("spark_points", "")
+                if pts:
+                    s_color = res.get("spark_color", "#cccccc")
+                    sparkline_svg = f'<svg width="100" height="30" style="margin: 0 10px;"><polyline points="{pts}" fill="none" stroke="{s_color}" stroke-width="2" /></svg>'
 
                 enriched_watchlist.append({
                     "item": item, "s": s, "t": t, "price": price, "pct": pct, "color": color, "sign": sign,

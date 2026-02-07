@@ -423,22 +423,82 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
             if hist.empty or len(hist) < 5:
                 hist = get_history(sym, period=period, asset_type=t)
             
-            curr_price = 0
-            # Pull price from history if available (fastest)
-            if not hist.empty:
-                curr_price = hist['Close'].iloc[-1]
-                prev_price = hist['Close'].iloc[-2] if len(hist) > 1 else curr_price
-                
-                # UPDATE GLOBAL CACHE (Inject into PRICE_CACHE if possible)
-                # Note: Inside cached function we should be careful with global state, 
-                # but we'll return the price too.
-                
-            if curr_price > 0:
-                score, color, label = calculate_technical_score_internal(hist, curr_price)
-                return asset_key, {
-                    "score": score, "color": color, "label": label, 
-                    "price": curr_price, "prev": prev_price if 'prev_price' in locals() else curr_price
-                }
+            if hist.empty:
+                return asset_key, {"error": "Empty history"}
+
+            curr_price = float(hist['Close'].iloc[-1])
+            prev_price = float(hist['Close'].iloc[-2]) if len(hist) > 1 else curr_price
+            
+            # 1. Indicators
+            st_data = {"val": 0, "dist": 0, "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
+            kama_data = {"val": 0, "dist": 0, "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
+            obv_data = {"trend": "Nötr", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
+            adx_data = {"val": 0, "label": "ZAYIF", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
+            
+            # Supertrend
+            st_series = calculate_supertrend(hist)
+            if not st_series.empty:
+                l_st = st_series.iloc[-1]
+                if l_st > 0:
+                    st_dist = ((curr_price / l_st) - 1) * 100
+                    st_color = "#00ff88" if curr_price > l_st else "#ff3e3e"
+                    st_data = {"val": l_st, "dist": st_dist, "color": st_color, "bg": f"{st_color}20"}
+            
+            # KAMA
+            kama_series = calculate_kama(hist, period=min(21, len(hist)-2))
+            if not kama_series.empty:
+                l_kama = kama_series.iloc[-1]
+                if l_kama > 0:
+                    kama_dist = ((curr_price / l_kama) - 1) * 100
+                    kama_color = "#00ff88" if curr_price > l_kama else "#ff3e3e"
+                    kama_data = {"val": l_kama, "dist": kama_dist, "color": kama_color, "bg": f"{kama_color}20"}
+            
+            # OBV
+            obv_series = calculate_obv(hist)
+            if not obv_series.empty and len(obv_series) > 1:
+                l_obv = obv_series.iloc[-1]; p_obv = obv_series.iloc[-2]
+                obv_trend = "Yükselen" if l_obv >= p_obv else "Düşen"
+                obv_color = "#00ff88" if obv_trend == "Yükselen" else "#ff3e3e"
+                obv_data = {"trend": obv_trend, "color": obv_color, "bg": f"{obv_color}20"}
+            
+            # ADX
+            adx_series = calculate_adx(hist); l_adx = 0
+            if not adx_series.empty:
+                l_adx = adx_series.iloc[-1]
+                is_uptrend = curr_price > kama_data["val"] if kama_data["val"] > 0 else True
+                if l_adx < 20: adx_label, adx_col = "ZAYIF", "#cccccc"
+                elif l_adx < 25:
+                    adx_label = "ORTA"
+                    adx_col = "#00ff88" if is_uptrend else "#ff3e3e"
+                elif l_adx < 50:
+                    adx_label = "GÜÇLÜ"
+                    adx_col = "#00ff88" if is_uptrend else "#ff3e3e"
+                else: 
+                    adx_label = "ÇOK GÜÇLÜ"
+                    adx_col = "#00ff88" if is_uptrend else "#ff3e3e"
+                adx_data = {"val": l_adx, "label": adx_label, "color": adx_col, "bg": f"{adx_col}20"}
+
+            # Technical Score
+            score, color, label = calculate_technical_score_internal(hist, curr_price)
+            
+            # Sparkline Points (Last 30 days)
+            spark_points = []
+            closes_30 = hist['Close'].tail(30).values
+            if len(closes_30) > 1:
+                min_c, max_c = min(closes_30), max(closes_30)
+                rng = max_c - min_c if max_c != min_c else 1
+                for i, v in enumerate(closes_30):
+                    px = (i / (len(closes_30) - 1)) * 100
+                    py = 30 - ((v - min_c) / rng) * 30
+                    spark_points.append(f"{px:.1f},{py:.1f}")
+            
+            return asset_key, {
+                "score": score, "color": color, "label": label, 
+                "price": curr_price, "prev": prev_price,
+                "st": st_data, "kama": kama_data, "obv": obv_data, "adx": adx_data,
+                "spark_points": " ".join(spark_points),
+                "spark_color": "#00ff88" if closes_30[-1] >= closes_30[0] else "#ff3e3e"
+            }
         except: pass
         return asset_key, {"score": 0, "color": "rgba(255,255,255,0.1)", "label": "N/A", "price": 0, "prev": 0}
 
