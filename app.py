@@ -4,7 +4,7 @@ from utils import (get_current_data, load_portfolio, add_asset, remove_asset, de
                    load_alerts, add_alert, delete_alert, check_alerts, archive_alert, migrate_local_to_supabase, claim_orphaned_supabase_data, 
                    is_gold_tl_asset, get_asset_details, get_gemini_api_key, save_gemini_api_key,
                    get_watchlist, add_to_watchlist, remove_from_watchlist, get_strategy_signal,
-                   calculate_kama, calculate_supertrend, calculate_obv, calculate_adx, calculate_technical_scores_bulk)
+                   calculate_kama, calculate_supertrend, calculate_obv, calculate_adx, calculate_technical_scores_bulk, PRICE_CACHE)
 from auth import init_auth_state, get_current_user, render_auth_page, logout
 import streamlit as st
 import pandas as pd
