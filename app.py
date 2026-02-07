@@ -174,8 +174,7 @@ def asset_chart_dialog(symbol, asset_type):
         title_suffix = "Fiyat Geçmişi (TEFAS)" if is_tefas else "Teknik Grafik (BIST)"
         st.markdown(f"### {symbol} - {title_suffix}")
         
-        with st.spinner("Veriler yükleniyor..."):
-            hist = get_history(symbol, period="1y", asset_type=asset_type)
+        hist = get_history(symbol, period="1y", asset_type=asset_type)
             
         if not hist.empty:
             fig = go.Figure()
@@ -1238,13 +1237,12 @@ if "portfolio_data_loaded" not in st.session_state:
 
 # Only fetch if not loaded or specifically requested
 if not st.session_state.portfolio_data_loaded:
-    with st.spinner("🚀 Veriler güncelleniyor..."):
-        # Add actual tickers for aliases like ALTIN/GÜMÜŞ to pre-fetch their dependencies
-        extra_tickers = [{"symbol": "GC=F", "type": "ticker"}, {"symbol": "SI=F", "type": "ticker"}]
-        fetch_list = all_holdings + [{"symbol": s[1], "type": "ticker"} for s in ticker_symbols] + extra_tickers
-        fetch_list += [{"symbol": "USDTRY=X", "type": "döviz"}, {"symbol": "ALTIN", "type": "emtia"}, {"symbol": "GÜMÜŞ", "type": "emtia"}]
-        fetch_all_prices_parallel(fetch_list)
-        st.session_state.portfolio_data_loaded = True
+    # Add actual tickers for aliases like ALTIN/GÜMÜŞ to pre-fetch their dependencies
+    extra_tickers = [{"symbol": "GC=F", "type": "ticker"}, {"symbol": "SI=F", "type": "ticker"}]
+    fetch_list = all_holdings + [{"symbol": s[1], "type": "ticker"} for s in ticker_symbols] + extra_tickers
+    fetch_list += [{"symbol": "USDTRY=X", "type": "döviz"}, {"symbol": "ALTIN", "type": "emtia"}, {"symbol": "GÜMÜŞ", "type": "emtia"}]
+    fetch_all_prices_parallel(fetch_list)
+    st.session_state.portfolio_data_loaded = True
 
 # Periodic Check & Notification System
 if "notified_ids" not in st.session_state: st.session_state.notified_ids = set()
@@ -1388,8 +1386,7 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
             if st.form_submit_button("Ekle", type="primary", use_container_width=True):
                 if w_sym:
                     # Validate
-                    with st.spinner("Kontrol ediliyor..."):
-                        d = get_current_data(w_sym, w_type)
+                    d = get_current_data(w_sym, w_type)
                     if d:
                         succ, msg = add_to_watchlist(w_sym, w_type)
                         if succ:
@@ -2653,8 +2650,7 @@ elif st.session_state.active_tab == "STRATEJİLER":
             
             if submit_a:
                 if a_sym and a_target is not None and a_target > 0:
-                    with st.spinner("🔍 Doğrulanıyor..."):
-                        valid = get_current_data(a_sym, a_type)
+                    valid = get_current_data(a_sym, a_type)
                     if valid:
                         curr_p = valid['price']
                         a_cond = "Fiyat Üstünde" if a_target >= curr_p else "Fiyat Altında"
