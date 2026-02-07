@@ -482,13 +482,16 @@ def asset_management_dialog():
             purchase_date = st.date_input("📅 Alış Tarihi", value=datetime.now(), key="add_date")
         
         st.markdown("<div style='margin-top:25px;'></div>", unsafe_allow_html=True)
-        if asset_symbol and asset_amount is not None and asset_cost is not None:
+        
+        # Persistent Button Logic: Pre-calculate status
+        is_ready = bool(asset_symbol and asset_amount and asset_cost is not None)
+        
+        if is_ready:
             # Calculate total impact
             rate = 1.0
             if asset_type in ["abd hisse/etf", "kripto"]:
                 usd_data = get_current_data("USDTRY=X", "döviz")
                 rate = usd_data["price"] if usd_data else 34.0
-            
             total_val = asset_amount * asset_cost * rate
             
             st.markdown(f"""
@@ -498,31 +501,28 @@ def asset_management_dialog():
                 </div>
             """, unsafe_allow_html=True)
             
-            high_value = total_val > 500000 # 500k limit for warning
-            
+            high_value = total_val > 500000
             if high_value:
-                st.warning("⚠️ Girdiğiniz miktar portföy için oldukça yüksek görünüyor. Lütfen rakamları kontrol edin.")
-                confirm = st.checkbox("Rakamların doğruluğunu onaylıyorum", key="entry_confirm")
-            else:
-                confirm = True
+                st.warning("⚠️ Miktar oldukça yüksek. Lütfen kontrol edin.")
+                confirm = st.checkbox("Onaylıyorum", key="entry_confirm")
+            else: confirm = True
+        else:
+            confirm = False
+            if not asset_symbol:
+                st.info("💡 Sembol girerek başlayın.")
 
-            st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-            if st.button("🚀 Varlık Ekle", type="primary", use_container_width=True, disabled=not confirm):
-                valid_data = get_current_data(asset_symbol, asset_type)
-                
-                if valid_data:
-                    success = add_asset(selected_portfolio, asset_symbol, asset_amount, asset_cost, asset_type, purchase_date.strftime("%Y-%m-%d"))
-                    if success:
-                        st.success(f"✅ {asset_symbol} eklendi!")
-                        # FORCE CACHE CLEAR on new entries to fix graph immediately
-                        st.cache_data.clear()
-                        st.session_state.show_asset_modal = False
-                        st.rerun()
-                    else: 
-                        st.error("❌ Hata.")
-                else:
-                    st.error(f"❌ '{asset_symbol}' bulunamadı!")
-        else: 
+        # Button is ALWAYS here now, no more disappearing acts
+        if st.button("🚀 Varlık Ekle", type="primary", use_container_width=True, disabled=not (is_ready and confirm)):
+            valid_data = get_current_data(asset_symbol, asset_type)
+            if valid_data:
+                success = add_asset(selected_portfolio, asset_symbol, asset_amount, asset_cost, asset_type, purchase_date.strftime("%Y-%m-%d"))
+                if success:
+                    st.success(f"✅ {asset_symbol} eklendi!")
+                    st.cache_data.clear()
+                    st.session_state.show_asset_modal = False
+                    st.rerun()
+                else: st.error("❌ Kayıt hatası.")
+            else: st.error(f"❌ '{asset_symbol}' bulunamadı!")
             st.write("") # Placeholder
 
 
