@@ -14,6 +14,7 @@ import requests
 import time
 import os
 import google.generativeai as genai
+import json
 # --- HELPER: CRYPTO FEAR & GREED ---
 @st.cache_data(ttl=3600)
 def get_crypto_fng():
