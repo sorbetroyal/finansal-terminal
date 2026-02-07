@@ -212,49 +212,64 @@ def _fetch_single_symbol(std_symbol, a_type):
 # ==================== STRATEGY FUNCTIONS (Supertrend + KAMA) ====================
 
 def calculate_kama(df, period=21, fast=2, slow=30):
-    """Calculate Kaufman's Adaptive Moving Average."""
-    if len(df) < period + 1:
-        return pd.Series(index=df.index)
+    """Calculate Kaufman's Adaptive Moving Average with improved robustness."""
+    if len(df) < period + 2:
+        return pd.Series(df['Close'].values, index=df.index)
     
     close = df['Close']
     change = abs(close - close.shift(period))
     volatility = abs(close - close.shift(1)).rolling(period).sum()
     
-    er = change / volatility
-    sc = (er * (2/(fast+1) - 2/(slow+1)) + 2/(slow+1))**2
+    # Avoid division by zero
+    er = (change / volatility).fillna(0)
+    fast_sc = 2 / (fast + 1)
+    slow_sc = 2 / (slow + 1)
+    sc = (er * (fast_sc - slow_sc) + slow_sc)**2
     
-    kama = pd.Series(index=df.index)
-    # Corrected kama[period] initialization to avoid SettingWithCopyWarning or ambiguity
-    kama.iloc[period] = close.iloc[period]
+    kama = pd.Series(index=df.index, dtype=float)
+    # Start KAMA with Close
+    start_idx = period
+    kama.iloc[start_idx] = close.iloc[start_idx]
     
-    for i in range(period + 1, len(df)):
-        # Corrected access to kama[i-1]
-        kama.iloc[i] = kama.iloc[i-1] + sc.iloc[i] * (close.iloc[i] - kama.iloc[i-1])
+    for i in range(start_idx + 1, len(df)):
+        prev_kama = kama.iloc[i-1]
+        kama.iloc[i] = prev_kama + sc.iloc[i] * (close.iloc[i] - prev_kama)
         
-    return kama
+    return kama.ffill()
 
 def calculate_supertrend(df, period=10, multiplier=3):
-    """Calculate Supertrend indicator."""
-    if len(df) < period + 1:
-        return pd.Series(index=df.index)
+    """Calculate Supertrend indicator with improved robustness for funds."""
+    if df.empty or len(df) < 2:
+        return pd.Series(index=df.index, dtype=float)
         
+    # Synthesis for funds where High/Low might be missing
+    if 'High' not in df.columns or 'Low' not in df.columns:
+        df = df.copy()
+        df['High'] = df['Close']
+        df['Low'] = df['Close']
+        
+    if len(df) < period + 2:
+         return pd.Series(df['Close'].values, index=df.index)
+
     hl2 = (df['High'] + df['Low']) / 2
-    
     # ATR manual calculation
     h_l = df['High'] - df['Low']
     h_pc = abs(df['High'] - df['Close'].shift(1))
     l_pc = abs(df['Low'] - df['Close'].shift(1))
     tr = pd.concat([h_l, h_pc, l_pc], axis=1).max(axis=1)
-    atr = tr.rolling(period).mean()
+    atr = tr.rolling(period).mean().fillna(tr)
     
     upperband = hl2 + (multiplier * atr)
     lowerband = hl2 - (multiplier * atr)
     
-    # Supertrend logic
     st = pd.Series(True, index=df.index)
-    st_val = pd.Series(0.0, index=df.index)
+    st_val = pd.Series(index=df.index, dtype=float)
+    
+    # Initial seed
+    st_val.iloc[0] = hl2.iloc[0]
     
     for i in range(1, len(df)):
+        # Finalize bands
         if df['Close'].iloc[i] > upperband.iloc[i-1]:
             st.iloc[i] = True
         elif df['Close'].iloc[i] < lowerband.iloc[i-1]:
@@ -268,7 +283,65 @@ def calculate_supertrend(df, period=10, multiplier=3):
         
         st_val.iloc[i] = lowerband.iloc[i] if st.iloc[i] else upperband.iloc[i]
         
-    return st_val
+    return st_val.ffill()
+
+def calculate_obv(df):
+    """Calculate On-Balance Volume (OBV) with momentum fallback for funds."""
+    if df.empty:
+        return pd.Series(dtype=float)
+        
+    if 'Volume' not in df.columns or df['Volume'].sum() == 0:
+        # Fallback for funds: Use Price Momentum instead of OBV
+        # If today's price > yesterday, it's a positive 'volume-less' flow
+        return df['Close'].diff().fillna(0).cumsum()
+    
+    obv = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+    return obv
+
+def calculate_adx(df, period=14):
+    """Calculate ADX with robustness for funds (synthetic High/Low)."""
+    if df.empty or len(df) < 2:
+        return pd.Series(0.0, index=df.index)
+        
+    df = df.copy()
+    if 'High' not in df.columns or 'Low' not in df.columns:
+        df['High'] = df['Close']
+        df['Low'] = df['Close']
+
+    if len(df) < period * 2:
+        # Return simplified momentum strength for short periods
+        return abs(df['Close'].diff(period)).fillna(0)
+    
+    high = df['High']
+    low = df['Low']
+    close = df['Close']
+    
+    # True Range
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.rolling(period).mean().fillna(tr)
+    
+    # Directional Movement
+    up_move = high.diff()
+    down_move = low.diff().abs()
+    
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+    
+    # Avoid div by zero in DI
+    p_roll = pd.Series(plus_dm, index=df.index).rolling(period).mean()
+    m_roll = pd.Series(minus_dm, index=df.index).rolling(period).mean()
+    
+    plus_di = 100 * (p_roll / atr).fillna(0)
+    minus_di = 100 * (m_roll / atr).fillna(0)
+    
+    sum_di = (plus_di + minus_di)
+    dx = 100 * (abs(plus_di - minus_di) / sum_di.replace(0, 1)).fillna(0)
+    adx = dx.rolling(period).mean().fillna(0)
+    
+    return adx
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_strategy_signal(symbol, asset_type):

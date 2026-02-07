@@ -3,7 +3,8 @@ from utils import (get_current_data, load_portfolio, add_asset, remove_asset, de
                    load_selected_portfolios, save_selected_portfolios, get_portfolio_metrics, fetch_all_prices_parallel,
                    load_alerts, add_alert, delete_alert, check_alerts, archive_alert, migrate_local_to_supabase, claim_orphaned_supabase_data, 
                    is_gold_tl_asset, get_asset_details, get_gemini_api_key, save_gemini_api_key,
-                   get_watchlist, add_to_watchlist, remove_from_watchlist, get_strategy_signal)
+                   get_watchlist, add_to_watchlist, remove_from_watchlist, get_strategy_signal,
+                   calculate_kama, calculate_supertrend, calculate_obv, calculate_adx)
 from auth import init_auth_state, get_current_user, render_auth_page, logout
 import streamlit as st
 import pandas as pd
@@ -1418,6 +1419,8 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
                     fetch_all_prices_parallel(to_fetch)
                     st.session_state.watchlist_data_loaded = True
             
+            # Pre-calculate data and scores for sorting
+            enriched_watchlist = []
             for item in w_list:
                 s = item["symbol"]
                 t = item["type"]
@@ -1425,84 +1428,175 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
                 data = get_current_data(s, t)
                 price = data["price"] if data else 0
                 prev = data["prev_close"] if data else 0
-                
                 pct = ((price / prev) - 1) * 100 if prev > 0 else 0
                 color = "#00ff88" if pct > 0 else ("#ff3e3e" if pct < 0 else "white")
                 sign = "+" if pct > 0 else ""
-                
                 cat_idx, currency, emoji = get_asset_details(s, t)
 
-                # Generate Sparkline
-                hist = get_history(s, period="1mo", asset_type=t)
+                # Fetch history for indicators
+                s_strip = s.strip()
+                hist = get_history(s_strip, period="3mo", asset_type=t)
                 sparkline_svg = ""
-                if not hist.empty and len(hist) > 1:
+                st_data = {"val": 0, "dist": 0, "color": "rgba(255,255,255,0.1)", "bg": "rgba(255,255,255,0.05)"}
+                kama_data = {"val": 0, "dist": 0, "color": "rgba(255,255,255,0.1)", "bg": "rgba(255,255,255,0.05)"}
+                obv_data = {"trend": "Nötr", "color": "rgba(255,255,255,0.1)", "bg": "rgba(255,255,255,0.05)"}
+                adx_data = {"val": 0, "label": "ZAYIF", "color": "rgba(255,255,255,0.2)", "bg": "rgba(255,255,255,0.05)"}
+                t_score = 0.0
+                score_color = "rgba(255,255,255,0.1)"
+                score_label = "N/A"
+
+                if not hist.empty and len(hist) > 2:
                     try:
-                        closes = hist['Close'].values
-                        if len(closes) > 0:
-                            min_c, max_c = min(closes), max(closes)
-                            range_c = max_c - min_c if max_c != min_c else 1
-                            sw, sh = 100, 30
-                            points = []
+                        closes = hist['Close'].tail(30).values
+                        if len(closes) > 1:
+                            min_c, max_c = min(closes), max(closes); range_c = max_c - min_c if max_c != min_c else 1
+                            sw, sh = 100, 30; points = []
                             for i, val in enumerate(closes):
                                 x = (i / (len(closes) - 1)) * sw
                                 y = sh - ((val - min_c) / range_c) * sh
                                 points.append(f"{x:.1f},{y:.1f}")
-                            
                             stroke = "#00ff88" if closes[-1] >= closes[0] else "#ff3e3e"
-                            sparkline_svg = f'<svg width="{sw}" height="{sh}" style="margin: 0 20px;"><polyline points="{" ".join(points)}" fill="none" stroke="{stroke}" stroke-width="2" /></svg>'
+                            sparkline_svg = f'<svg width="{sw}" height="{sh}" style="margin: 0 10px;"><polyline points="{" ".join(points)}" fill="none" stroke="{stroke}" stroke-width="2" /></svg>'
                     except: pass
-                
-                # Initial Price Logic
+
+                    try:
+                        st_series = calculate_supertrend(hist)
+                        if not st_series.empty:
+                            l_st = st_series.iloc[-1]
+                            if l_st > 0:
+                                st_dist = ((price / l_st) - 1) * 100
+                                st_color = "#00ff88" if price > l_st else "#ff3e3e"
+                                st_data = {"val": l_st, "dist": st_dist, "color": st_color, "bg": f"{st_color}20"}
+                        
+                        kama_series = calculate_kama(hist, period=min(21, len(hist)-2))
+                        if not kama_series.empty:
+                            l_kama = kama_series.iloc[-1]
+                            if l_kama > 0:
+                                kama_dist = ((price / l_kama) - 1) * 100
+                                kama_color = "#00ff88" if price > l_kama else "#ff3e3e"
+                                kama_data = {"val": l_kama, "dist": kama_dist, "color": kama_color, "bg": f"{kama_color}20"}
+                        
+                        obv_series = calculate_obv(hist)
+                        if not obv_series.empty and len(obv_series) > 1:
+                            l_obv = obv_series.iloc[-1]; p_obv = obv_series.iloc[-2]
+                            obv_trend = "Yükselen" if l_obv >= p_obv else "Düşen"
+                            obv_color = "#00ff88" if obv_trend == "Yükselen" else "#ff3e3e"
+                            obv_data = {"trend": obv_trend, "color": obv_color, "bg": f"{obv_color}20"}
+
+                        adx_series = calculate_adx(hist); l_adx = 0
+                        if not adx_series.empty:
+                            l_adx = adx_series.iloc[-1]; is_uptrend = price > l_kama if kama_data["val"] > 0 else True
+                            if l_adx < 20: adx_label, adx_col, adx_bg = "ZAYIF", "#cccccc", "rgba(100, 100, 100, 0.2)"
+                            elif l_adx < 25:
+                                adx_label = "ORTA"
+                                if is_uptrend: adx_col, adx_bg = "#b0ffb0", "rgba(0, 200, 100, 0.2)"
+                                else: adx_col, adx_bg = "#ffb0b0", "rgba(200, 0, 0, 0.2)"
+                            elif l_adx < 50:
+                                adx_label = "GÜÇLÜ"
+                                if is_uptrend: adx_col, adx_bg = "#00ff88", "rgba(0, 80, 40, 0.5)"
+                                else: adx_col, adx_bg = "#ff4444", "rgba(80, 0, 0, 0.5)"
+                            else:
+                                adx_label = "ÇOK GÜÇLÜ"
+                                if is_uptrend: adx_col, adx_bg = "#39ff14", "rgba(57, 255, 20, 0.4)"
+                                else: adx_col, adx_bg = "#ff0000", "rgba(255, 0, 0, 0.4)"
+                            adx_data = {"val": l_adx, "label": adx_label, "color": adx_col, "bg": adx_bg}
+
+                        # TECHNICAL SCORE
+                        st_above = price > st_data["val"] and st_data["val"] > 0
+                        kama_above = price > kama_data["val"] and kama_data["val"] > 0
+                        if st_above: t_score += 3.0
+                        if kama_above: t_score += 2.0
+                        if st_above:
+                            d = st_data["dist"]
+                            if d <= 4.0: t_score += 1.5
+                            elif d <= 12.0: t_score += 1.0
+                            else: t_score += 0.4
+                        if kama_above:
+                            d = kama_data["dist"]
+                            if d <= 2.0: t_score += 1.5
+                            elif d <= 8.0: t_score += 1.0
+                            else: t_score += 0.3
+                        if st_above and kama_above:
+                            if l_adx > 25: t_score += 1.0
+                            if l_adx > 45: t_score += 1.0
+                            if obv_data["trend"] == "Yükselen": t_score += 1.0
+                        else:
+                            if not st_above and not kama_above and l_adx > 30: t_score -= 2.0
+                        t_score = max(0, min(10, t_score))
+                        if not st_above and not kama_above:
+                            score_color = "#ff3e3e"
+                            score_label = "TEHLİKE" if l_adx > 40 else "ZAYIF"
+                        else:
+                            score_color = "#ff3e3e" if t_score < 4 else ("#ffcc00" if t_score < 7.5 else "#00ff88")
+                            score_label = "ZAYIF" if t_score < 4 else ("ORTA" if t_score < 7.5 else "GÜÇLÜ")
+                            if t_score >= 9.0: score_label = "ELMAS"
+                    except: pass
+
+                enriched_watchlist.append({
+                    "item": item, "s": s, "t": t, "price": price, "pct": pct, "color": color, "sign": sign,
+                    "emoji": emoji, "currency": currency, "spark": sparkline_svg,
+                    "st": st_data, "kama": kama_data, "obv": obv_data, "adx": adx_data,
+                    "t_score": t_score, "score_color": score_color, "score_label": score_label
+                })
+
+            # SORT BY SCORE DESCENDING
+            enriched_watchlist.sort(key=lambda x: x["t_score"], reverse=True)
+
+            # RENDER CARDS
+            for d in enriched_watchlist:
+                item = d["item"]; s = d["s"]; t = d["t"]; price = d["price"]; pct = d["pct"]
+                color = d["color"]; sign = d["sign"]; emoji = d["emoji"]; currency = d["currency"]
+                sparkline_svg = d["spark"]; st_data = d["st"]; kama_data = d["kama"]
+                obv_data = d["obv"]; adx_data = d["adx"]; t_score = d["t_score"]
+                score_color = d["score_color"]; score_label = d["score_label"]
+
                 initial_p = item.get("initial_price", 0)
-                perf_since_add = 0
-                perf_color = "rgba(255,255,255,0.5)"
-                perf_sign = ""
-                
+                perf_since_add = 0; perf_color = "rgba(255,255,255,0.5)"; perf_sign = ""
                 if initial_p > 0 and price > 0:
                     perf_since_add = ((price / initial_p) - 1) * 100
-                    if perf_since_add > 0:
-                        perf_color = "#00ff88"
-                        perf_sign = "+"
-                    elif perf_since_add < 0:
-                        perf_color = "#ff3e3e"
-                        perf_sign = ""
+                    if perf_since_add > 0: perf_color = "#00ff88"; perf_sign = "+"
+                    elif perf_since_add < 0: perf_color = "#ff3e3e"; perf_sign = ""
                 
-                # Layout: 12 parts for Card, 1 part for Delete Button
                 col_card, col_del = st.columns([12, 1])
-                
                 with col_card:
                     st.markdown(f"""
-                    <div class="glass-card" style="padding:15px; margin-bottom:0px; display:flex; justify-content:space-between; align-items:center; height: 80px;">
-                        <div style="display:flex; align-items:center; gap:15px; flex:1.5;">
+                    <div class="glass-card" style="padding:15px; margin-bottom:0px; display:flex; justify-content:space-between; align-items:center; min-height: 100px;">
+                        <div style="display:flex; align-items:center; gap:15px; flex:1.2;">
                             <div style="font-size:1.5rem;">{emoji}</div>
                             <div>
                                 <div style="color:white; font-weight:700; font-size:1.1rem;">{s}</div>
                                 <div style="color:rgba(255,255,255,0.5); font-size:0.75rem;">{t.upper()}</div>
                             </div>
                         </div>
-                        
-                        <div style="flex:2; display:flex; justify-content:center; opacity:0.8;">
-                            {sparkline_svg}
+                        <div style="flex:0.8; display:flex; flex-direction:column; align-items:center; justify-content:center; border-left:1px solid rgba(255,255,255,0.1); border-right:1px solid rgba(255,255,255,0.1); margin: 0 10px;">
+                            <div style="font-size:1.4rem; font-weight:900; color:{score_color}; line-height:1;">{t_score:.1f}</div>
+                            <div style="font-size:0.55rem; font-weight:800; color:{score_color}; opacity:0.8; margin-top:3px; letter-spacing:0.5px;">{score_label}</div>
                         </div>
-
+                        <div style="flex:2.5; display:flex; flex-direction:column; align-items:center; gap:8px;">
+                            {sparkline_svg}
+                            <div style="display:flex; gap:6px;">
+                                <div style="background:{st_data['bg']}; border:1px solid {st_data['color']}40; padding:2px 6px; border-radius:4px; font-size:0.6rem; color:{st_data['color']}; text-align:center; min-width:60px;">
+                                    <div style="font-weight:700; opacity:0.8;">ST {st_data['val']:,.1f}</div>
+                                    <div style="font-weight:800;">%{st_data['dist']:.1f}</div>
+                                </div>
+                                <div style="background:{kama_data['bg']}; border:1px solid {kama_data['color']}40; padding:2px 6px; border-radius:4px; font-size:0.6rem; color:{kama_data['color']}; text-align:center; min-width:60px;">
+                                    <div style="font-weight:700; opacity:0.8;">KAMA {kama_data['val']:,.1f}</div>
+                                    <div style="font-weight:800;">%{kama_data['dist']:.1f}</div>
+                                </div>
+                                <div style="background:{obv_data['bg']}; border:1px solid {obv_data['color']}40; padding:2px 6px; border-radius:4px; font-size:0.6rem; color:{obv_data['color']}; text-align:center; display:flex; align-items:center; justify-content:center; min-width:60px; font-weight:800;">OBV {obv_data['trend'].upper()}</div>
+                                <div style="background:{adx_data['bg']}; border:1px solid {adx_data['color']}40; padding:2px 6px; border-radius:4px; font-size:0.6rem; color:{adx_data['color']}; text-align:center; min-width:60px;">
+                                    <div style="font-weight:700; opacity:0.8;">ADX {adx_data['val']:.1f}</div>
+                                    <div style="font-weight:800;">{adx_data['label']}</div>
+                                </div>
+                            </div>
+                        </div>
                         <div style="text-align:right; flex:1;">
                             <div style="color:white; font-weight:600; font-size:0.9rem;">{initial_p:,.2f}</div>
                             <div style="color:{perf_color}; font-weight:700; font-size:0.85rem;">{perf_sign}%{perf_since_add:.2f}</div>
-                            
-                            <!-- Time ago display -->
                             <div style="color:rgba(255,255,255,0.4); font-size:0.65rem; margin-top:2px; font-weight:600;">
-                                {
-                                    (lambda d: 
-                                        (lambda diff: 
-                                            "Bugün" if diff == 0 else 
-                                            "Dün" if diff == 1 else 
-                                            f"{diff} gün önce"
-                                        )((datetime.now().date() - datetime.fromisoformat(d).date()).days)
-                                    )(item.get("added_at", datetime.now().isoformat()))
-                                }
+                                {(lambda d: (lambda diff: "Bugün" if diff == 0 else "Dün" if diff == 1 else f"{diff} gün önce")((datetime.now().date() - datetime.fromisoformat(d).date()).days))(item.get("added_at", datetime.now().isoformat()))}
                             </div>
                         </div>
-
                         <div style="text-align:right; flex:1.5;">
                             <div style="color:white; font-weight:700; font-size:1.1rem;">{price:,.2f} <span style="font-size:0.8rem; color:rgba(255,255,255,0.5);">{currency}</span></div>
                             <div style="color:{color}; font-weight:600; font-size:0.9rem;">{sign}%{pct:.2f} (Günlük)</div>
@@ -1511,13 +1605,10 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
                     """.replace('\n', '').replace('    ', ''), unsafe_allow_html=True)
                 
                 with col_del:
-                     # Centering the delete button vertically with some margin hack
-                     st.write("") 
-                     st.write("")
-                     if st.button("🗑️", key=f"del_w_{s}", help="Listeden Çıkar"):
-                         remove_from_watchlist(s)
-                         st.rerun()
-                
+                    st.write(""); st.write("")
+                    if st.button("🗑️", key=f"del_w_{s}", help="Listeden Çıkar"):
+                        remove_from_watchlist(s)
+                        st.rerun()
                 st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
 
 if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
