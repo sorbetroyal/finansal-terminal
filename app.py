@@ -258,17 +258,20 @@ def asset_chart_dialog(symbol, asset_type):
                     rangeslider=dict(visible=True, bgcolor='rgba(255,255,255,0.05)'),
                     type='date'
                 ),
-                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', side="right", tickformat=",.2f"),
-                hovermode="x unified"
+                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', side="right", tickformat=",.2f", showline=True),
+                hovermode="x", # Restored 'x'
+                spikedistance=-1,
+                hoverdistance=100
             )
-            # Enable Advanced Crosshairs (TradingView-like cursor)
+            # Enable Advanced Crosshairs (Final Attempt)
             fig.update_xaxes(
-                showspikes=True, spikemode="across", spikesnap="cursor", 
-                showline=True, showgrid=False, spikedash="dash", spikecolor="rgba(255,255,255,0.5)", spikethickness=1
+                showspikes=True, spikemode="across+toaxis", spikesnap="cursor", 
+                showline=True, showgrid=False, spikedash="solid", spikecolor="rgba(255,255,255,0.2)", spikethickness=1
             )
             fig.update_yaxes(
-                showspikes=True, spikemode="across", spikesnap="cursor", 
-                showline=True, showgrid=True, gridcolor='rgba(255,255,255,0.05)', spikedash="dash", spikecolor="rgba(255,255,255,0.5)", spikethickness=1
+                showspikes=True, spikemode="across+toaxis", spikesnap="cursor", 
+                showline=True, showgrid=True, gridcolor='rgba(255,255,255,0.05)', spikedash="solid", spikecolor="rgba(255,255,255,0.2)", spikethickness=1,
+                showticklabels=True
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
