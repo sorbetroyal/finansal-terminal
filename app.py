@@ -203,12 +203,56 @@ def asset_chart_dialog(symbol, asset_type):
                     hovertemplate='%{y:,.2f} TL<br>%{x}<extra></extra>'
                 ))
             
+            
+            # --- AUTO-TREND & SMA ---
+            try:
+                import numpy as np
+                
+                # 1. 50-Day SMA (Otomatik Ortalama)
+                sma_50 = hist['Close'].rolling(window=50).mean()
+                fig.add_trace(go.Scatter(
+                    x=sma_50.index, y=sma_50, name="SMA 50",
+                    line=dict(color="#FFD700", width=1.5, dash="dash"),
+                    hoverinfo="skip"
+                ))
+
+                # 2. Linear Regression Channel (Otomatik Kanal)
+                reg_data = hist['Close'].tail(100) if len(hist) > 100 else hist['Close']
+                if len(reg_data) > 10:
+                    x_nums = np.arange(len(reg_data))
+                    y_vals = reg_data.values
+                    
+                    slope, intercept = np.polyfit(x_nums, y_vals, 1)
+                    y_reg = slope * x_nums + intercept
+                    std_dev = np.std(y_vals - y_reg)
+                    
+                    y_upper = y_reg + (2 * std_dev)
+                    y_lower = y_reg - (2 * std_dev)
+                    
+                    # Upper Limit (Visible Dash)
+                    fig.add_trace(go.Scatter(
+                        x=reg_data.index, y=y_upper, showlegend=False,
+                        line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dash"), hoverinfo="skip"
+                    ))
+                    # Lower Limit (Fill to Upper, Visible Dash)
+                    fig.add_trace(go.Scatter(
+                        x=reg_data.index, y=y_lower, name="Trend Kanalı",
+                        fill='tonexty', fillcolor='rgba(255, 255, 255, 0.1)',
+                        line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dash"), hoverinfo="skip"
+                    ))
+                    # Central Regression Line (Brighter)
+                    fig.add_trace(go.Scatter(
+                        x=reg_data.index, y=y_reg, name="Regresyon",
+                        line=dict(color="rgba(255,255,255,0.6)", width=1.5, dash="longdash"), hoverinfo="skip"
+                    ))
+            except: pass
+
             fig.update_layout(
                 template="plotly_dark",
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
                 margin=dict(l=0, r=0, t=20, b=0),
-                height=900,
+                height=450,
                 xaxis=dict(
                     showgrid=False, 
                     rangeslider=dict(visible=True, bgcolor='rgba(255,255,255,0.05)'),
@@ -216,6 +260,15 @@ def asset_chart_dialog(symbol, asset_type):
                 ),
                 yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', side="right", tickformat=",.2f"),
                 hovermode="x unified"
+            )
+            # Enable Advanced Crosshairs (TradingView-like cursor)
+            fig.update_xaxes(
+                showspikes=True, spikemode="across", spikesnap="cursor", 
+                showline=True, showgrid=False, spikedash="dash", spikecolor="rgba(255,255,255,0.5)", spikethickness=1
+            )
+            fig.update_yaxes(
+                showspikes=True, spikemode="across", spikesnap="cursor", 
+                showline=True, showgrid=True, gridcolor='rgba(255,255,255,0.05)', spikedash="dash", spikecolor="rgba(255,255,255,0.5)", spikethickness=1
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -230,11 +283,11 @@ def asset_chart_dialog(symbol, asset_type):
         tv_url = f"https://s.tradingview.com/widgetembed/?symbol={tv_sym}&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&theme=dark&style=1&timezone=Europe%2FIstanbul&locale=tr"
         
         tv_iframe = f"""
-        <div style="height:800px; width:100%;">
+        <div style="height:400px; width:100%;">
             <iframe 
                 src="{tv_url}"
                 width="100%" 
-                height="800" 
+                height="400" 
                 frameborder="0" 
                 allowfullscreen 
                 scrolling="no"
@@ -242,7 +295,7 @@ def asset_chart_dialog(symbol, asset_type):
             ></iframe>
         </div>
         """
-        components.html(tv_iframe, height=820)
+        components.html(tv_iframe, height=420)
 
 def get_tradingview_symbol(symbol, asset_type):
     s = str(symbol).upper().strip()
