@@ -2627,146 +2627,229 @@ elif st.session_state.active_tab == "STRATEJİLER":
 
     with col_list:
         all_alerts = load_alerts()
-        tab_active, tab_history = st.tabs(["⚡ Aktif Sinyal Takibi", "📜 Tamamlanan Stratejiler"])
-        
+        # Separate active and history
         active_alerts = [a for a in all_alerts if not a.get("triggered", False)]
         history_alerts = [a for a in all_alerts if a.get("triggered", False)]
         
-        with tab_active:
-            if not active_alerts:
-                st.markdown('<div style="padding:60px; text-align:center; color:rgba(255,255,255,0.2); border:2px dashed rgba(255,255,255,0.05); border-radius:24px; font-weight:600;">Şu an aktif takip edilen strateji yok.</div>', unsafe_allow_html=True)
-            else:
-                for al in active_alerts:
+        # Group active strategies by Symbol
+        asset_strategies = {}
+        for a in active_alerts:
+            s_key = a['symbol']
+            if s_key not in asset_strategies: asset_strategies[s_key] = []
+            asset_strategies[s_key].append(a)
+
+        # Get portfolio assets
+        p_assets = {}
+        # Use existing all_holdings or fetch
+        source_holdings = globals().get('all_holdings', [])
+        if not source_holdings:
+             try: source_holdings = get_all_holdings()
+             except: pass
+        
+        for h in source_holdings:
+            s = h['symbol']
+            if s not in p_assets: p_assets[s] = {"type": h.get("type", "bist hisse"), "amount": 0}
+            p_assets[s]["amount"] += h.get("amount", 0)
+
+        # Tabs
+        tab_portfolio, tab_watched = st.tabs(["💼 Varlıklarım", "👀 Takip Edilenler"])
+
+        
+        # Helper to render a card
+        def render_sc_card(sym, is_watched_tab=False):
+            # Determine Type
+            atype = "bist hisse" # Default
+            # Try to infer type from existing strategies or portfolio
+            if sym in asset_strategies and asset_strategies[sym]:
+                atype = asset_strategies[sym][0]["type"]
+            elif sym in p_assets:
+                atype = p_assets[sym]["type"]
+            
+            curr_data = get_current_data(sym, atype)
+            # Fallback for crypto
+            if not curr_data and atype != "kripto":
+                curr_data = get_current_data(sym, "kripto")
+                if curr_data: atype = "kripto" # Update type if found as crypto
+            
+            curr_price = curr_data["price"] if curr_data else 0
+            
+            strategies = asset_strategies.get(sym, [])
+            
+            if strategies:
+                # STRATEGY CARDS
+                for al in strategies:
                     al_id = al.get('id', al.get('created_at'))
-                    curr = get_current_data(al['symbol'], al.get('type'))
                     raw_action = al.get("action_type", "STRATEJİ")
                     action = "AL" if "AL" in raw_action else ("SAT" if "SAT" in raw_action else raw_action)
-                    
                     target = al.get('target_price', 1)
                     initial = al.get('initial_price', target)
-                    current_p = curr['price'] if curr else initial
                     
-                    # Determine left/right based on price (lower on left)
-                    if current_p <= target:
-                        left_price = current_p
-                        left_label = "GÜNCEL FİYAT"
-                        left_glow = "text-shadow:0 0 20px rgba(0,242,255,0.4);"
-                        left_color = "#00f2ff"
-                        
-                        right_price = target
-                        right_label = "HEDEF FİYAT"
-                        right_glow = ""
-                        right_color = "#fff"
+                    # Logic for display
+                    if curr_price <= target:
+                        left_p, left_lbl, left_glow, left_c = curr_price, "GÜNCEL", "text-shadow:0 0 20px rgba(0,242,255,0.4);", "#00f2ff"
+                        right_p, right_lbl, right_glow, right_c = target, "HEDEF", "", "#fff"
+                        bar_align = "flex-end"
                     else:
-                        left_price = target
-                        left_label = "HEDEF FİYAT"
-                        left_glow = ""
-                        left_color = "#fff"
-                        
-                        right_price = current_p
-                        right_label = "GÜNCEL FİYAT"
-                        right_glow = "text-shadow:0 0 20px rgba(0,242,255,0.4);"
-                        right_color = "#00f2ff"
+                        left_p, left_lbl, left_glow, left_c = target, "HEDEF", "", "#fff"
+                        right_p, right_lbl, right_glow, right_c = curr_price, "GÜNCEL", "text-shadow:0 0 20px rgba(0,242,255,0.4);", "#00f2ff"
+                        bar_align = "flex-start"
 
-                    dist_pct = (target/current_p - 1) * 100 if current_p > 0 else 0
+                    dist_pct = (target/curr_price - 1) * 100 if curr_price > 0 else 0
                     abs_dist = abs(dist_pct)
-                    
-                    if abs_dist <= 10:
-                        progress = abs_dist * 10
-                    else:
-                        progress = 100
-                    
-                    # Align bar towards the target price side
-                    # If current < target: current is left, target is right -> gap is on right
-                    # If current > target: target is left, current is right -> gap is on left
-                    bar_alignment = "flex-end" if current_p <= target else "flex-start"
+                    progress = min(abs_dist * 10, 100) if abs_dist <= 10 else 100
                     
                     cls_suffix = "alim" if "AL" in action else "satis"
-                    action_emoji = "🟢" if "AL" in action else "🔴"
-                    
-                    # Progress Text logic
-                    progress_info = ""
-                    if 0 < abs_dist <= 10:
-                        progress_info = f'<div style="font-size:0.6rem; color:rgba(255,255,255,0.3); font-weight:800; text-align:center; margin-top:10px; letter-spacing:1px;">KALAN MESAFE: %{abs_dist:.2f}</div>'
+                    emoji = "🟢" if "AL" in action else "🔴"
+                    prog_txt = f'<div style="font-size:0.6rem; color:rgba(255,255,255,0.3); font-weight:800; text-align:center; margin-top:10px; letter-spacing:1px;">KALAN: %{abs_dist:.2f}</div>' if abs_dist <= 10 else ""
 
-                    c_cols = st.columns([12, 1])
-                    with c_cols[0]:
-                        st.markdown(f"""<div class="alert-card alert-active-{cls_suffix}">
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-<div style="display:flex; align-items:center; gap:10px;">
-<span style="color:white; font-weight:800; font-size:1.25rem; letter-spacing:-0.5px;">{al['symbol']}</span>
-<span class="strategy-status-tag tag-{cls_suffix}" style="padding:2px 8px; font-size:0.65rem;">{action_emoji} {action}</span>
+                    # Define trig_at (Time display)
+                    try:
+                        c_date_str = al.get('created_at', datetime.now().isoformat())
+                        c_date = datetime.fromisoformat(c_date_str)
+                        d_diff = (datetime.now().date() - c_date.date()).days
+                        if d_diff == 0: trig_at = "Bugün"
+                        elif d_diff == 1: trig_at = "Dün"
+                        else: trig_at = f"{d_diff} gün önce"
+                    except:
+                        trig_at = "Yeni"
+
+
+                    col_card, col_del = st.columns([12, 1])
+                    with col_card:
+                        st.markdown(f"""<div class="alert-card alert-active-{cls_suffix}" style="padding: 10px 15px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+<div style="display:flex; align-items:center; gap:8px;">
+<span style="color:white; font-weight:800; font-size:1.1rem; letter-spacing:-0.5px;">{sym}</span>
+<span class="strategy-status-tag tag-{cls_suffix}" style="padding:1px 6px; font-size:0.6rem;">{emoji} {action}</span>
 </div>
-<div style="background:rgba(255,255,255,0.05); padding:3px 10px; border-radius:80px; border:1px solid rgba(255,255,255,0.1);">
-<span style="color:rgba(255,255,255,0.5); font-size:0.65rem; font-weight:700;">BAŞ:</span>
-<span style="color:white; font-size:0.7rem; font-weight:800; margin-left:5px;">{initial:,.2f}</span>
+<div style="background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:80px; border:1px solid rgba(255,255,255,0.1); display:flex; align-items:center;">
+<span style="color:rgba(255,255,255,0.5); font-size:0.6rem; font-weight:700; margin-right:4px;">BAŞ:</span>
+<span style="color:white; font-size:0.7rem; font-weight:800;">{initial:,.2f}</span>
 </div>
 </div>
-<div style="display:flex; justify-content:space-between; align-items:flex-end; position:relative; margin-bottom:5px;">
+<div style="display:flex; justify-content:space-between; align-items:flex-end; position:relative; margin-bottom:4px;">
 <div style="text-align:left;">
-<div class="label-mini" style="font-size:0.6rem;">{left_label}</div>
-<div class="val-main" style="color:{left_color}; {left_glow}; font-size:1.1rem;">{left_price:,.2f}</div>
+<div class="label-mini" style="font-size:0.55rem; margin-bottom:0;">{left_lbl}</div>
+<div class="val-main" style="color:{left_c}; {left_glow}; font-size:1.0rem; line-height:1.1;">{left_p:,.2f}</div>
 </div>
-<div style="position:absolute; left:50%; bottom:0; transform:translateX(-50%); text-align:center;">
-<div style="background:{'#00ff8820' if abs_dist < 1 else 'rgba(255,255,255,0.05)'}; color:{'#00ff88' if abs_dist < 1 else 'rgba(255,255,255,0.4)'}; padding:2px 10px; border-radius:10px; font-weight:800; font-size:0.75rem; border:1px solid {'#00ff8840' if abs_dist < 1 else 'transparent'};">%{abs_dist:.2f}</div>
+<div style="position:absolute; left:50%; bottom:2px; transform:translateX(-50%); text-align:center;">
+<div style="background:{'#00ff8820' if abs_dist < 1 else 'rgba(255,255,255,0.05)'}; color:{'#00ff88' if abs_dist < 1 else 'rgba(255,255,255,0.4)'}; padding:1px 8px; border-radius:8px; font-weight:800; font-size:0.7rem; border:1px solid {'#00ff8840' if abs_dist < 1 else 'transparent'};">%{abs_dist:.2f}</div>
 </div>
 <div style="text-align:right;">
-<div class="label-mini" style="font-size:0.6rem;">{right_label}</div>
-<div class="val-main" style="color:{right_color}; {right_glow}; font-size:1.1rem;">{right_price:,.2f}</div>
+<div class="label-mini" style="font-size:0.55rem; margin-bottom:0;">{right_lbl}</div>
+<div class="val-main" style="color:{right_c}; {right_glow}; font-size:1.0rem; line-height:1.1;">{right_p:,.2f}</div>
 </div>
 </div>
-{progress_info}
-<div class="progress-container-v2" style="display:flex; justify-content:{bar_alignment}; margin-top:8px; height:4px;">
+<div class="progress-container-v2" style="display:flex; justify-content:{bar_align}; margin-top:4px; height:4px; background:rgba(255,255,255,0.1);">
 <div class="progress-fill-v2 fill-{cls_suffix}" style="width:{progress}%;"></div>
 </div>
 </div>""", unsafe_allow_html=True)
                     
-                    with c_cols[1]:
-                        st.write("") # Spacer
-                        st.write("")
+                    with col_del:
+                        st.write("") 
+                        st.write("") 
                         st.write("")
                         if st.button("✕", key=f"del_al_{al_id}", help="Stratejiyi Kaldır"):
                             delete_alert(al_id)
                             st.rerun()
 
-        with tab_history:
-            if not history_alerts:
-                st.markdown('<div style="padding:60px; text-align:center; color:rgba(255,255,255,0.2); border:2px dashed rgba(255,255,255,0.05); border-radius:24px;">Henüz tamamlanan strateji bulunmamaktadır.</div>', unsafe_allow_html=True)
-            else:
-                for al in sorted(history_alerts, key=lambda x: x.get('triggered_at', ''), reverse=True):
-                    al_id = al.get('id', al.get('created_at'))
-                    trig_at = al.get('triggered_at', '').split('T')[0] if 'T' in al.get('triggered_at', '') else '—'
-                    action = al.get("action_type", "STRATEJİ")
-                    
-                    st.markdown(f"""
-                        <div class="alert-card alert-triggered">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <div style="display:flex; align-items:center; gap:20px;">
-                                    <div style="background:rgba(255, 62, 62, 0.2); width:45px; height:45px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">🎯</div>
-                                    <div>
-                                        <div style="display:flex; align-items:center; gap:10px;">
-                                            <span style="color:white; font-weight:800; font-size:1.1rem;">{al['symbol']}</span>
-                                            <span class="strategy-status-tag tag-triggered">TAMAMLANDI</span>
-                                        </div>
-                                        <div style="color:rgba(255,255,255,0.5); font-size:0.85rem; font-weight:600; margin-top:4px;">
-                                            {al['target_price']:,.4f} hedefi başarıyla test edildi.
-                                        </div>
-                                    </div>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div class="label-mini">TETİKLEME FİYATI</div>
-                                    <div style="color:#ff3e3e; font-size:1.3rem; font-weight:800;">{al.get('trigger_price',0):,.4f}</div>
-                                    <div style="color:rgba(255,255,255,0.3); font-size:0.75rem; font-weight:600; margin-top:4px;">{trig_at}</div>
-                                </div>
+            elif not is_watched_tab:
+                # NO STRATEGY CARD (Only for owned assets tab)
+                # NO STRATEGY CARD (Only for owned assets tab)
+                col_card = st.columns(1)[0]
+                with col_card:
+                     # Calculate simple change if available
+                     change_pct = 0
+                     if curr_data and curr_data.get('prev_close'):
+                         change_pct = (curr_price / curr_data['prev_close'] - 1) * 100
+                     
+                     pct_color = "#00ff88" if change_pct >= 0 else "#ff3e3e"
+                     sign = "+" if change_pct >= 0 else ""
+                     
+                     st.markdown(f"""
+                        <div class="glass-card" style="padding:15px; display:flex; justify-content:space-between; align-items:center; border-left: 4px solid rgba(255,255,255,0.1); margin-bottom: 0px;">
+                            <div>
+                                <div style="font-size:1.2rem; font-weight:800; color:white;">{sym}</div>
+                                <div style="font-size:0.7rem; color:rgba(255,255,255,0.4); text-transform:uppercase;">{atype}</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="font-size:1.1rem; font-weight:700; color:white;">{curr_price:,.2f}</div>
+                                <div style="font-size:0.8rem; font-weight:600; color:{pct_color};">{sign}%{change_pct:.2f}</div>
                             </div>
                         </div>
-                    """, unsafe_allow_html=True)
-                    
-                    del_col1, del_col2 = st.columns([12, 1])
-                    with del_col2:
-                        if st.button("🗑️", key=f"del_h_{al_id}", help="Arşivi Sil"):
-                            delete_alert(al_id)
-                            st.rerun()
+                     """, unsafe_allow_html=True)
+                     
+                     # Manual Toggle for Strategy Form (Avoids expander glitch)
+                     form_key = f"show_form_{sym}"
+                     if st.button("🎯 STRATEJİ OLUŞTUR", key=f"btn_toggle_{sym}", use_container_width=True):
+                         st.session_state[form_key] = not st.session_state.get(form_key, False)
+                     
+                     if st.session_state.get(form_key, False):
+                         st.markdown('<div style="background:rgba(255,255,255,0.03); border-radius:12px; padding:15px; margin-top:5px; border:1px solid rgba(255,255,255,0.05); animation: fadeIn 0.3s;">', unsafe_allow_html=True)
+                         with st.form(f"quick_add_{sym}"):
+                             q_cols = st.columns(2)
+                             with q_cols[0]:
+                                 q_action = st.radio("İşlem", ["AL", "SAT"], horizontal=True, key=f"q_act_{sym}")
+                             with q_cols[1]:
+                                 q_target = st.number_input("Hedef", min_value=0.0, value=float(curr_price), step=0.01, key=f"q_tgt_{sym}")
+                             
+                             st.write("")
+                             if st.form_submit_button("ONAYLA", type="primary", use_container_width=True):
+                                 q_cond = "Fiyat Üstünde" if q_target >= curr_price else "Fiyat Altında"
+                                 succ, msg = add_alert(sym, q_target, q_cond, atype, initial_price=curr_price, action_type=q_action)
+                                 if succ: 
+                                     st.session_state[form_key] = False # Close form
+                                     st.rerun()
+                                 else: st.error(msg)
+                         st.markdown('</div>', unsafe_allow_html=True)
+                                 
+        # RENDER LOOPS
+        # Type Priority Helper
+        def get_type_prio(t):
+            t = t.lower() if t else ""
+            if "kripto" in t: return 0
+            if "bist" in t: return 1
+            if "abd" in t or "etf" in t or "nasdaq" in t: return 2
+            if "emtia" in t or "altın" in t or "gümüş" in t: return 3
+            if "tefas" in t or "fon" in t: return 4
+            if "döviz" in t: return 5
+            return 99
+
+        with tab_portfolio:
+            # Sort: 1) Has Strategy? (0/1) 2) Type Priority 3) Alphabetical
+            p_syms = sorted(
+                list(p_assets.keys()),
+                key=lambda sym: (
+                    0 if sym in asset_strategies and asset_strategies[sym] else 1,
+                    get_type_prio(p_assets[sym].get("type", "")),
+                    sym
+                )
+            )
+            
+            if not p_syms:
+                st.info("Portföyünüzde varlık bulunamadı.")
+            else:
+                 st.markdown('<div style="margin-top:10px;"></div>', unsafe_allow_html=True)
+                 for sym in p_syms: render_sc_card(sym, is_watched_tab=False)
+        
+        with tab_watched:
+             # Sort: 1) Type Priority 2) Alphabetical (All have strategies here)
+             w_syms = sorted(
+                 list(set(asset_strategies.keys()) - set(p_assets.keys())),
+                 key=lambda sym: (
+                     get_type_prio(asset_strategies[sym][0].get("type", "")) if asset_strategies.get(sym) else 99,
+                     sym
+                 )
+             )
+             
+             if not w_syms:
+                 st.info("Portföy dışı takip edilen strateji yok.")
+             else:
+                 st.markdown('<div style="margin-top:10px;"></div>', unsafe_allow_html=True)
+                 for sym in w_syms: render_sc_card(sym, is_watched_tab=True)
+
+
+
 
 
 # 6. MODALS (Stay at the bottom)
