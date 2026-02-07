@@ -209,98 +209,6 @@ def _fetch_single_symbol(std_symbol, a_type):
     except Exception as e:
         return None
 
-# ==================== STRATEGY FUNCTIONS (Supertrend + KAMA) ====================
-
-def calculate_kama(df, period=21, fast=2, slow=30):
-    """Calculate Kaufman's Adaptive Moving Average."""
-    if len(df) < period + 1:
-        return pd.Series(index=df.index)
-    
-    close = df['Close']
-    change = abs(close - close.shift(period))
-    volatility = abs(close - close.shift(1)).rolling(period).sum()
-    
-    er = change / volatility
-    sc = (er * (2/(fast+1) - 2/(slow+1)) + 2/(slow+1))**2
-    
-    kama = pd.Series(index=df.index)
-    # Corrected kama[period] initialization to avoid SettingWithCopyWarning or ambiguity
-    kama.iloc[period] = close.iloc[period]
-    
-    for i in range(period + 1, len(df)):
-        # Corrected access to kama[i-1]
-        kama.iloc[i] = kama.iloc[i-1] + sc.iloc[i] * (close.iloc[i] - kama.iloc[i-1])
-        
-    return kama
-
-def calculate_supertrend(df, period=10, multiplier=3):
-    """Calculate Supertrend indicator."""
-    if len(df) < period + 1:
-        return pd.Series(index=df.index)
-        
-    hl2 = (df['High'] + df['Low']) / 2
-    
-    # ATR manual calculation
-    h_l = df['High'] - df['Low']
-    h_pc = abs(df['High'] - df['Close'].shift(1))
-    l_pc = abs(df['Low'] - df['Close'].shift(1))
-    tr = pd.concat([h_l, h_pc, l_pc], axis=1).max(axis=1)
-    atr = tr.rolling(period).mean()
-    
-    upperband = hl2 + (multiplier * atr)
-    lowerband = hl2 - (multiplier * atr)
-    
-    # Supertrend logic
-    st = pd.Series(True, index=df.index)
-    st_val = pd.Series(0.0, index=df.index)
-    
-    for i in range(1, len(df)):
-        if df['Close'].iloc[i] > upperband.iloc[i-1]:
-            st.iloc[i] = True
-        elif df['Close'].iloc[i] < lowerband.iloc[i-1]:
-            st.iloc[i] = False
-        else:
-            st.iloc[i] = st.iloc[i-1]
-            if st.iloc[i] and lowerband.iloc[i] < lowerband.iloc[i-1]:
-                lowerband.iloc[i] = lowerband.iloc[i-1]
-            if not st.iloc[i] and upperband.iloc[i] > upperband.iloc[i-1]:
-                upperband.iloc[i] = upperband.iloc[i-1]
-        
-        st_val.iloc[i] = lowerband.iloc[i] if st.iloc[i] else upperband.iloc[i]
-        
-    return st_val
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_strategy_signal(symbol, asset_type):
-    """
-    Checks the SAT condition: Price < Supertrend AND Price < KAMA.
-    Parameters: ST (10, 3), KAMA (21, 2, 30)
-    """
-    try:
-        # Fetch at least 60 days to have enough room for 21-period indicators
-        hist = get_history(symbol, period="60d", asset_type=asset_type)
-        if hist.empty or len(hist) < 30:
-            return False
-            
-        current_price = hist['Close'].iloc[-1]
-        kama = calculate_kama(hist, period=21)
-        st_val = calculate_supertrend(hist, period=10, multiplier=3)
-        
-        if kama.empty or st_val.empty:
-            return False
-            
-        latest_kama = kama.iloc[-1]
-        latest_st = st_val.iloc[-1]
-        
-        # Supertrend direction: if current price is below the trend line (which is upperband in downtrend)
-        # In our calculation ST_val is the stop line.
-        # If Price < ST_val AND Price < KAMA -> SAT (Sinyal: Bozulma)
-        if current_price < latest_st and current_price < latest_kama:
-            return True
-        return False
-    except:
-        return False
-
 def get_current_data(symbol, asset_type=None):
     """Fetch current price with global cache priority, then falling back to cached single fetch."""
     # 1. Standardization (MUST BE FIRST for cache consistency)
@@ -1335,23 +1243,10 @@ def delete_alert(alert_id):
         print(f"Error deleting alert: {e}")
         return False
 
-def archive_alert(alert_id):
-    """Archive an alert (set triggered=True) strictly in Supabase."""
-    user_id = get_user_id()
-    if not user_id: return False
-    try:
-        db = get_db()
-        db.table("alerts").update({"triggered": True}).eq("id", alert_id).eq("user_id", user_id).execute()
-        return True
-    except Exception as e:
-        print(f"Error archiving alert: {e}")
-        return False
-
 def check_alerts():
     """Check all active alerts against current prices and update Supabase."""
     user_id = get_user_id()
     alerts = load_alerts()
-    # Manual archive requested: "triggered" means Archived. "is_hit" means reached target.
     active_alerts = [a for a in alerts if not a.get("triggered", False)]
     
     if not active_alerts:
@@ -1361,7 +1256,7 @@ def check_alerts():
     fetch_list = [{"symbol": a["symbol"], "type": a.get("type")} for a in active_alerts]
     fetch_all_prices_parallel(fetch_list)
     
-    newly_hit_alerts = []
+    triggered_alerts = []
     
     for alert in active_alerts:
         data = get_current_data(alert["symbol"], alert.get("type"))
@@ -1369,40 +1264,40 @@ def check_alerts():
             price = data["price"]
             condition = alert["condition"]
             target = alert["target_price"]
-            already_hit = alert.get("is_hit", False)
             
-            should_trigger = False
+            is_triggered = False
             if condition == "Fiyat Üstünde" and price >= target:
-                should_trigger = True
+                is_triggered = True
             elif condition == "Fiyat Altında" and price <= target:
-                should_trigger = True
+                is_triggered = True
             
-            if should_trigger and not already_hit:
-                alert["is_hit"] = True
-                alert["triggered"] = True   # Auto-archive
+            if is_triggered:
+                alert["triggered"] = True
                 alert["triggered_at"] = datetime.now().isoformat()
                 alert["trigger_price"] = price
-                newly_hit_alerts.append(alert)
+                triggered_alerts.append(alert)
                 
                 # Update in DB
                 try:
                     if user_id:
                         supabase.table("alerts").update({
-                            "is_hit": True, 
-                            "triggered": True,
+                            "triggered": True, 
                             "triggered_at": alert["triggered_at"], 
                             "trigger_price": price
                         }).eq("id", alert["id"]).eq("user_id", user_id).execute()
+                    else:
+                        raise Exception("No user_id")
                 except:
+                    # Fallback update in local alerts.json if needed
                     pass
     
-    if newly_hit_alerts:
+    if triggered_alerts:
+        # Final local sync
         try:
             full_list = load_alerts()
-            for t in newly_hit_alerts:
+            for t in triggered_alerts:
                 for a in full_list:
                     if str(a.get("id")) == str(t.get("id")):
-                        a["is_hit"] = True
                         a["triggered"] = True
                         a["triggered_at"] = t["triggered_at"]
                         a["trigger_price"] = t["trigger_price"]
@@ -1410,7 +1305,7 @@ def check_alerts():
         except:
             pass
         
-    return newly_hit_alerts
+    return triggered_alerts
 
 # ==================== WATCHLIST FUNCTIONS ====================
 

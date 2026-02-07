@@ -1,0 +1,15 @@
+streamlit
+pandas
+numpy
+plotly
+yfinance
+borsapy
+python-dotenv
+scipy
+supabase
+google-generativeai
+beautifulsoup4
+httpx
+lxml
+openpyxl
+pydantic

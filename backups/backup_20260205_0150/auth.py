@@ -20,17 +20,6 @@ def init_auth_state():
         st.session_state.user = None
     if "access_token" not in st.session_state:
         st.session_state.access_token = None
-        
-    # Otomatik giriş kontrolü (Lokal kullanım için)
-    if not st.session_state.user:
-        auto_email = os.getenv("AUTO_LOGIN_EMAIL")
-        auto_pass = os.getenv("AUTO_LOGIN_PASSWORD")
-        if auto_email and auto_pass:
-            try:
-                # Login fonksiyonunu doğrudan çağırarak state'i dolduruyoruz
-                login(auto_email, auto_pass)
-            except:
-                pass
 
 def get_current_user():
     """Get the currently logged in user."""
