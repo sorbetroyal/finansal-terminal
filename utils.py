@@ -155,13 +155,41 @@ def _fetch_single_symbol(std_symbol, a_type):
         # 2. Existing Special Handling/Fetch (Funds etc)
         if any(x in a_type.lower() for x in ["tefas", "fon", "bes", "oks"]):
             try:
+                # Special Case: ZPX and other BIST BYFs sometimes coded as funds
+                if s_upper.startswith("ZPX") or s_upper.startswith("KPT") or s_upper.startswith("USDTR"):
+                    ticker = yf.Ticker(f"{s_upper}.IS")
+                    history = ticker.history(period="2d")
+                    if not history.empty:
+                        price = round(float(history['Close'].iloc[-1]), 4)
+                        prev_close = round(float(history['Close'].iloc[-2]), 4) if len(history) > 1 else price
+                        return {"price": price, "prev_close": prev_close, "change_pct": ((price/prev_close)-1)*100 if prev_close else 0}
+
                 fund = borsapy.Fund(std_symbol)
                 info = fund.info
                 price = info.get('price', 0)
                 daily_ret = info.get('daily_return', 0)
                 prev_close = price / (1 + (daily_ret / 100)) if daily_ret else price
+                
+                # If borsapy fails to find price but it might be a BIST ETF
+                if price <= 0:
+                    ticker = yf.Ticker(f"{s_upper}.IS")
+                    history = ticker.history(period="2d")
+                    if not history.empty:
+                        price = round(float(history['Close'].iloc[-1]), 4)
+                        prev_close = round(float(history['Close'].iloc[-2]), 4) if len(history) > 1 else price
+                        return {"price": price, "prev_close": prev_close, "change_pct": ((price/prev_close)-1)*100 if prev_close else 0}
+
                 return {"price": price, "prev_close": prev_close, "change_pct": daily_ret}
             except:
+                # Final fallback for BIST ETFs marked as funds
+                try:
+                    ticker = yf.Ticker(f"{s_upper}.IS")
+                    history = ticker.history(period="2d")
+                    if not history.empty:
+                        price = round(float(history['Close'].iloc[-1]), 4)
+                        prev_close = round(float(history['Close'].iloc[-2]), 4) if len(history) > 1 else price
+                        return {"price": price, "prev_close": prev_close, "change_pct": ((price/prev_close)-1)*100 if prev_close else 0}
+                except: pass
                 return None
         
         # 3. Spot Gold / Silver / Gold Variants Calculation logic
@@ -284,6 +312,144 @@ def calculate_supertrend(df, period=10, multiplier=3):
         st_val.iloc[i] = lowerband.iloc[i] if st.iloc[i] else upperband.iloc[i]
         
     return st_val.ffill()
+
+def calculate_technical_score_internal(hist, current_price):
+    """Core logic for 0-10 technical scoring."""
+    t_score = 0.0; score_color = "rgba(255,255,255,0.1)"; score_label = "N/A"
+    try:
+        if not hist.empty and len(hist) > 2:
+            st_series = calculate_supertrend(hist)
+            kama_series = calculate_kama(hist, period=min(21, len(hist)-2))
+            obv_series = calculate_obv(hist)
+            adx_series = calculate_adx(hist)
+            
+            l_st = st_series.iloc[-1] if not st_series.empty else 0
+            l_kama = kama_series.iloc[-1] if not kama_series.empty else 0
+            l_adx = adx_series.iloc[-1] if not adx_series.empty else 0
+            
+            st_above = current_price > l_st and l_st > 0
+            kama_above = current_price > l_kama and l_kama > 0
+            
+            # Score Components
+            if st_above: t_score += 3.0
+            if kama_above: t_score += 2.0
+            if st_above:
+                dist = ((current_price / l_st) - 1) * 100
+                if dist <= 4.0: t_score += 1.5
+                elif dist <= 12.0: t_score += 1.0
+                else: t_score += 0.4
+            if kama_above:
+                dist = ((current_price / l_kama) - 1) * 100
+                if dist <= 2.0: t_score += 1.5
+                elif dist <= 8.0: t_score += 1.0
+                else: t_score += 0.3
+            if st_above and kama_above:
+                if l_adx > 25: t_score += 1.0
+                if l_adx > 45: t_score += 1.0
+                if not obv_series.empty and len(obv_series) > 1:
+                    if obv_series.iloc[-1] >= obv_series.iloc[-2]: t_score += 1.0
+            else:
+                if not st_above and not kama_above and l_adx > 30: t_score -= 2.0
+            
+            t_score = max(0, min(10, t_score))
+            if not st_above and not kama_above:
+                score_color = "#ff3e3e"; score_label = "TEHLİKE" if l_adx > 40 else "ZAYIF"
+            else:
+                score_color = "#ff3e3e" if t_score < 4 else ("#ffcc00" if t_score < 7.5 else "#00ff88")
+                score_label = "ZAYIF" if t_score < 4 else ("ORTA" if t_score < 7.5 else "GÜÇLÜ")
+                if t_score >= 9.0: score_label = "ELMAS"
+    except: pass
+    return t_score, score_color, score_label
+
+def calculate_technical_scores_bulk(holdings, period="3mo"):
+    """Ultra-optimized bulk technical score calculation using single-shot downloads."""
+    if not holdings: return {}
+    
+    unique_assets = []
+    seen = set()
+    for h in holdings:
+        key = (h["symbol"], h.get("type", "bist hisse"))
+        if key not in seen:
+            unique_assets.append(key)
+            seen.add(key)
+
+    results = {}
+    yf_keys = []
+    special_keys = []
+    
+    for key in unique_assets:
+        sym, t = key
+        t_low = t.lower()
+        if any(x in t_low for x in ["tefas", "fon", "bes", "oks"]) or is_gold_tl_asset(sym):
+            special_keys.append(key)
+        else:
+            yf_keys.append(key)
+
+    # 1. Bulk YFinance Download
+    bulk_hist_data = {}
+    if yf_keys:
+        try:
+            yf_symbols = []
+            symbol_to_key = {}
+            for k in yf_keys:
+                s, t = k
+                std_s = s
+                if "bist" in t.lower() and not std_s.endswith(".IS"): std_s = f"{std_s}.IS"
+                elif "kripto" in t.lower() and "-" not in std_s: std_s = f"{std_s}-USD"
+                elif "döviz" in t.lower():
+                    s_up = s.upper()
+                    if s_up == "USD": std_s = "USDTRY=X"
+                    elif s_up in ["EUR", "EYR"]: std_s = "EURTRY=X"
+                    elif s_up == "GBP": std_s = "GBPTRY=X"
+                yf_symbols.append(std_s)
+                symbol_to_key[std_s] = k
+            
+            # One shot download for all YF assets
+            df_bulk = yf.download(yf_symbols, period=period, group_by='ticker', progress=False, threads=True)
+            for std_s in yf_symbols:
+                ticker_df = df_bulk[std_s] if len(yf_symbols) > 1 else df_bulk
+                if not ticker_df.empty:
+                    # Drop NaN rows which YF often sends for weekend gaps
+                    bulk_hist_data[symbol_to_key[std_s]] = ticker_df.dropna(subset=['Close'])
+        except: pass
+
+    # 2. Process all assets (YF from bulk, Special from individual)
+    def process_single(asset_key):
+        sym, t = asset_key
+        try:
+            # Get history: Try bulk first, but fallback to robust get_history if empty/short
+            # This is crucial for ZPX30 which needs its XU030.IS fallback logic in get_history
+            hist = bulk_hist_data.get(asset_key, pd.DataFrame())
+            if hist.empty or len(hist) < 5:
+                hist = get_history(sym, period=period, asset_type=t)
+            
+            # Get current price
+            curr_price = 0
+            if (sym, t) in PRICE_CACHE:
+                curr_price = PRICE_CACHE[(asset_key[0] if not asset_key[0].endswith(".IS") else asset_key[0], t)]["price"]
+            
+            # Additional check if std_symbol didn't match cache
+            if curr_price <= 0:
+                p_data = get_current_data(sym, t)
+                if p_data: curr_price = p_data["price"]
+                
+            if curr_price <= 0 and not hist.empty:
+                curr_price = hist['Close'].iloc[-1]
+                
+            if curr_price > 0:
+                score, color, label = calculate_technical_score_internal(hist, curr_price)
+                return asset_key, {"score": score, "color": color, "label": label}
+        except: pass
+        return asset_key, {"score": 0, "color": "rgba(255,255,255,0.1)", "label": "N/A"}
+
+    # Process specials and verify YF results in parallel threads
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        batch_results = list(executor.map(process_single, unique_assets))
+        
+    for key, data in batch_results:
+        results[key] = data
+        
+    return results
 
 def calculate_obv(df):
     """Calculate On-Balance Volume (OBV) with momentum fallback for funds."""
@@ -536,25 +702,71 @@ def get_history(symbol, period="1mo", asset_type=None):
             except:
                 pass
             
+        if is_gold_tl_asset(s_up):
+            try:
+                # BIST Gold Certificate check
+                if "S1" in s_up or ("ALTIN" in s_up and "bist" in a_type):
+                    t = borsapy.Ticker("ALTIN")
+                    df = t.history(period=period)
+                    if not df.empty: return df
+            except:
+                pass
+            
             # Gold Spot Calculation (for Emtia or variants)
-            gold_ons = get_history("GC=F", period=period)
-            usd_try = get_history("USDTRY=X", period=period)
-            if not gold_ons.empty and not usd_try.empty:
-                df = gold_ons[["Close"]].join(usd_try[["Close"]], lsuffix='_ons', rsuffix='_usd', how='inner')
-                gram_gold = (df["Close_ons"] / 31.1035) * df["Close_usd"]
-                
-                multiplier = 1.0
-                if "ÇEYREK" in s_up: multiplier = 1.6065
-                elif "YARIM" in s_up: multiplier = 3.2130
-                elif "TAM" in s_up: multiplier = 6.4260
-                elif "ATA" in s_up: multiplier = 6.6150
-                # Note: ALTIN.S1 is handled by borsapy above, if fails we don't fallback to spot gram because price is different
-                
-                df["Close"] = gram_gold * multiplier
-                return df
+            # Use yf.download directly to avoid recursion issues and be more efficient
+            try:
+                spot_data = yf.download(["GC=F", "USDTRY=X"], period=period, progress=False, group_by='ticker')
+                if not spot_data.empty:
+                    ons = spot_data["GC=F"]["Close"].ffill().bfill()
+                    usd = spot_data["USDTRY=X"]["Close"].ffill().bfill()
+                    
+                    # Align dates
+                    combined = pd.DataFrame({"ons": ons, "usd": usd}).dropna()
+                    if not combined.empty:
+                        gram_gold = (combined["ons"] / 31.1035) * combined["usd"]
+                        
+                        multiplier = 1.0
+                        if "ÇEYREK" in s_up: multiplier = 1.6065
+                        elif "YARIM" in s_up: multiplier = 3.2130
+                        elif "TAM" in s_up: multiplier = 6.4260
+                        elif "ATA" in s_up: multiplier = 6.6150
+                        
+                        price_series = gram_gold * multiplier
+                        # Synthesize full OHLC for indicators
+                        df_res = pd.DataFrame({
+                            "Open": price_series,
+                            "High": price_series,
+                            "Low": price_series,
+                            "Close": price_series
+                        }, index=combined.index)
+                        return df_res
+            except:
+                pass
+            return pd.DataFrame()
         
         ticker = yf.Ticker(symbol)
-        return ticker.history(period=period)
+        df = ticker.history(period=period)
+        
+        # SPECIAL FALLBACK: If ZPX30 history is empty or too short, use XU030.IS (underlying index)
+        if (s_up == "ZPX30" or s_up == "ZPX30.IS") and (df.empty or len(df) < 5):
+            df_index = yf.Ticker("XU030.IS").history(period=period)
+            if not df_index.empty:
+                # SCALE THE INDEX DATA to match ZPX30 price level
+                # Get current price of ZPX30 from PRICE_CACHE or a single fetch
+                current_price = 0
+                z_data = get_current_data("ZPX30", "bist hisse")
+                if z_data: current_price = z_data["price"]
+                
+                if current_price > 0:
+                    index_last_close = df_index['Close'].iloc[-1]
+                    ratio = current_price / index_last_close
+                    # Scale all numerical columns
+                    for col in ['Open', 'High', 'Low', 'Close']:
+                        if col in df_index.columns:
+                            df_index[col] = df_index[col] * ratio
+                return df_index
+                
+        return df
     except: return pd.DataFrame()
 
 @st.cache_data(ttl=3600)

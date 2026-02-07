@@ -4,7 +4,7 @@ from utils import (get_current_data, load_portfolio, add_asset, remove_asset, de
                    load_alerts, add_alert, delete_alert, check_alerts, archive_alert, migrate_local_to_supabase, claim_orphaned_supabase_data, 
                    is_gold_tl_asset, get_asset_details, get_gemini_api_key, save_gemini_api_key,
                    get_watchlist, add_to_watchlist, remove_from_watchlist, get_strategy_signal,
-                   calculate_kama, calculate_supertrend, calculate_obv, calculate_adx)
+                   calculate_kama, calculate_supertrend, calculate_obv, calculate_adx, calculate_technical_scores_bulk)
 from auth import init_auth_state, get_current_user, render_auth_page, logout
 import streamlit as st
 import pandas as pd
@@ -468,20 +468,20 @@ def asset_management_dialog():
             asset_symbol = st.text_input(ph_text, key="add_symbol").strip().upper()
         
         with col2:
-            asset_amount = st.number_input("🔢 Adet (Miktar)", min_value=0.0, value=None, placeholder="1.0", step=0.0001, format="%.4f", key="add_amount")
+            asset_amount = st.number_input("🔢 Adet (Miktar)", min_value=0.0, value=1.0, step=0.0001, format="%.4f", key="add_amount")
             # The widget now takes its value directly from the session_state key modified above
             
             # Auto-set cost for Cash
-            val_cost = None
+            val_cost = 0.0
             if asset_type == "nakit":
                  val_cost = 1.0
             
-            asset_cost = st.number_input("💰 Birim Maliyet", min_value=0.0, value=val_cost, placeholder="1.00", step=0.0001, format="%.4f", key="add_cost_widget")
+            asset_cost = st.number_input("💰 Birim Maliyet", min_value=0.0, value=val_cost, step=0.0001, format="%.4f", key="add_cost_widget")
 
             purchase_date = st.date_input("📅 Alış Tarihi", value=datetime.now(), key="add_date")
         
         st.markdown("<div style='margin-top:25px;'></div>", unsafe_allow_html=True)
-        if asset_symbol and asset_amount and asset_cost:
+        if asset_symbol and asset_amount is not None and asset_cost is not None:
             # Calculate total impact
             rate = 1.0
             if asset_type in ["abd hisse/etf", "kripto"]:
@@ -1660,13 +1660,21 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
                 "amount": 0.0,
                 "total_cost_val": 0.0,
                 "portfolios": set(),
-                # Store original items to calculate individual category contributions if needed,
-                # but here we just need aggregated view
             }
         
         merged_holdings[sym]["amount"] += h["amount"]
         merged_holdings[sym]["total_cost_val"] += h["amount"] * h["cost"]
         merged_holdings[sym]["portfolios"].add(h["p"])
+
+    # --- PERFORMANCE OPTIMIZATION: PARALLEL FETCH & SCORE ---
+    if agg_holdings:
+        # 1. Warm price cache in parallel
+        fetch_all_prices_parallel(agg_holdings)
+        # 2. Warm technical scores in parallel
+        with st.spinner("Teknik Analiz Motoru Hazırlanıyor..."):
+            bulk_scores = calculate_technical_scores_bulk(agg_holdings)
+    else:
+        bulk_scores = {}
 
     # Now populate detailed_list from merged_holdings
     for sym, m_data in merged_holdings.items():
@@ -1674,7 +1682,7 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
         avg_cost = m_data["total_cost_val"] / amount if amount > 0 else 0
         p_names = ", ".join(sorted(list(m_data["portfolios"])))
         if len(m_data["portfolios"]) > 1:
-            p_names = f"{len(m_data["portfolios"])} Portföy" # Simplified display for multi-portfolio
+            p_names = f"{len(m_data['portfolios'])} Portföy" 
 
         d = get_current_data(sym, m_data.get("type"))
         t = m_data.get("type", "").lower()
@@ -1688,11 +1696,12 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
             rate = usd_rate if currency == "USD" else 1.0
             v = p_val_orig * rate
             
-            # Note: We need to distribute these aggregates back to category totals or use the original loop for that.
-            # To avoid breaking category totals logic which runs on individual items above, we should KEEP the original loop for Totals/Categories
-            # and use this loop ONLY for detailed_list display.
-            # BUT: calculating category totals again here is cleaner if we want consistent aggregation.
-            
+            # Use pre-calculated bulk score
+            score_data = bulk_scores.get((sym, t), {"score": 0.0, "color": "rgba(255,255,255,0.1)", "label": "N/A"})
+            t_score = score_data["score"]
+            score_color = score_data["color"]
+            score_label = score_data["label"]
+
             # Let's populate detailed_list here
             detailed_list.append({
                 "Emoji": cat_emoji, "Varlık": sym, "Portföy": p_names,
@@ -1704,7 +1713,8 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
                 "Toplam_KZ_TL": (p_val_orig - cost_val_orig) * rate,
                 "Günlük (%)": (d["price"]/d["prev_close"]-1)*100,
                 "Toplam (%)": (d["price"]/avg_cost-1)*100 if avg_cost > 0 else 0, "Para": currency,
-                "Signal": strategy_hits.get(f'{sym.upper().replace(".IS", "").split(".")[0].strip()}_{t}', get_strategy_signal(sym, t))
+                "Signal": strategy_hits.get(f'{sym.upper().replace(".IS", "").split(".")[0].strip()}_{t}', get_strategy_signal(sym, t)),
+                "t_score": t_score, "score_color": score_color, "score_label": score_label
             })
 
         else:
@@ -2418,17 +2428,18 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
                 st.markdown('<div style="margin-top:10px; margin-bottom:15px; display:flex; align-items:center; gap:10px;"><i class="fas fa-list-ul" style="color:#00f2ff;"></i><span style="color:white; font-weight:600; font-size:1rem;">Tüm Varlıklarım</span></div>', unsafe_allow_html=True)
             
             with header_cols[1]:
-                sort_options = {"Değer": "Deger_TL", "Günlük %": "Günlük (%)", "Toplam %": "Toplam (%)"}
+                sort_options = {"Değer": "Deger_TL", "Günlük %": "Günlük (%)", "Toplam %": "Toplam (%)", "Teknik Skor": "t_score"}
                 def on_sort_change():
                     st.session_state.asset_sort_by = st.session_state.asset_sort_radio
                 st.radio("Sırala", options=list(sort_options.keys()), key="asset_sort_radio", index=list(sort_options.keys()).index(st.session_state.asset_sort_by), horizontal=True, label_visibility="collapsed", on_change=on_sort_change)
     
-            # Custom Header for All Assets
-            a_h_cols = st.columns([2.5, 2, 2, 2, 2, 1.5, 1.5, 0.8])
-            a_headers = ["VARLIK", "MALİYET", "TOPLAM ALIŞ", "GÜNCEL", "TOPLAM DEĞER", "GÜNLÜK K/Z", "TOPLAM K/Z", ""]
+            # Custom Header for All Assets (Tightened Varlık-Skor relationship)
+            a_h_cols = st.columns([1.3, 0.7, 2.8, 1.8, 1.8, 1.8, 1.5, 1.5, 0.5])
+            a_headers = ["VARLIK", "SKOR", "MALİYET", "TOPLAM ALIŞ", "GÜNCEL", "TOPLAM DEĞER", "GÜNLÜK K/Z", "TOPLAM K/Z", ""]
             for i, h_text in enumerate(a_headers):
                 with a_h_cols[i]:
-                    st.markdown(f'<div style="color: rgba(255, 255, 255, 0.4); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 0;">{h_text}</div>', unsafe_allow_html=True)
+                    align = "center" if h_text == "MALİYET" else "left"
+                    st.markdown(f'<div style="color: rgba(255, 255, 255, 0.4); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 0; text-align: {align};">{h_text}</div>', unsafe_allow_html=True)
             
             st.markdown('<div style="border-bottom: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 10px;"></div>', unsafe_allow_html=True)
 
@@ -2441,42 +2452,52 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
                 g_cls = "text-glow-green" if g_kz > 0 else ("text-glow-red" if g_kz < 0 else "")
                 t_cls = "text-glow-green" if t_kz > 0 else ("text-glow-red" if t_kz < 0 else "")
                 
+                # Technical Score Data
+                ts = h.get("t_score", 0)
+                ts_col = h.get("score_color", "#cccccc")
+                ts_lab = h.get("score_label", "N/A")
+
                 # Highlight columns if sorted
                 g_style = "background: rgba(0, 242, 255, 0.03); border-radius: 4px; padding: 2px 5px;" if sort_key == "Günlük (%)" else ""
                 t_style = "background: rgba(0, 242, 255, 0.03); border-radius: 4px; padding: 2px 5px;" if sort_key == "Toplam (%)" else ""
                 v_style = "font-weight:700; color:#00f2ff;" if sort_key == "Deger_TL" else ""
 
-                r_cols = st.columns([2.5, 2, 2, 2, 2, 1.5, 1.5, 0.8])
+                r_cols = st.columns([1.3, 0.7, 2.8, 1.8, 1.8, 1.8, 1.5, 1.5, 0.5])
                 with r_cols[0]:
                     sig = h.get("Signal")
-                    # Normalize signal for display
                     norm_sig = "AL" if sig and "AL" in str(sig) else ("SAT" if sig and "SAT" in str(sig) else None)
-                    
                     signal_tag = ""
                     if norm_sig:
                         tag_color = "#00ff88" if norm_sig == "AL" else "#ff3e3e"
                         tag_bg = "rgba(0, 255, 136, 0.15)" if norm_sig == "AL" else "rgba(255, 62, 62, 0.15)"
                         tag_border = "rgba(0, 255, 136, 0.3)" if norm_sig == "AL" else "rgba(255, 62, 62, 0.3)"
                         signal_tag = f'<span style="background:{tag_bg}; color:{tag_color}; font-size:0.6rem; padding:1px 5px; border-radius:3px; margin-left:5px; border:1px solid {tag_border}; font-weight:700;">{norm_sig}</span>'
-                        
-                    st.markdown(f'<div style="line-height:18px; color:white; font-weight:500; font-size:0.85rem;">{h["Emoji"]} {h["Varlık"]}{signal_tag}<br><span style="font-size:0.7rem; color:rgba(255,255,255,0.4);">{h["Portföy"]}</span></div>', unsafe_allow_html=True)
-                with r_cols[1]:
-                    st.markdown(f'<div style="line-height:40px; color:rgba(255,255,255,0.7); font-size:0.85rem;">{h["Maliyet"]:,.2f} {curr}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="line-height:20px; color:white; font-weight:700; font-size:1.05rem;">{h["Emoji"]} {h["Varlık"]}{signal_tag}<br><span style="font-size:0.75rem; color:rgba(255,255,255,0.4); font-weight:500;">{h["Portföy"]}</span></div>', unsafe_allow_html=True)
+                
+                with r_cols[1]: # SCORE COLUMN (Left aligned to Varık)
+                    st.markdown(f"""
+                        <div style="display:flex; flex-direction:column; align-items:flex-start; justify-content:center; line-height:1; padding-top:5px;">
+                            <div style="font-size:1.1rem; font-weight:900; color:{ts_col};">{ts:.1f}</div>
+                            <div style="font-size:0.55rem; font-weight:800; color:{ts_col}; opacity:0.8; margin-top:2px;">{ts_lab}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
                 with r_cols[2]:
-                    st.markdown(f'<div style="line-height:40px; color:rgba(255,255,255,0.7); font-size:0.85rem;">{h["T_Maliyet"]:,.2f} {curr}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="line-height:40px; color:rgba(255,255,255,0.7); font-size:0.85rem; text-align: center;">{h["Maliyet"]:,.2f} {curr}</div>', unsafe_allow_html=True)
                 with r_cols[3]:
-                    st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem;">{h["Güncel"]:,.2f} {curr}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="line-height:40px; color:rgba(255,255,255,0.7); font-size:0.85rem;">{h["T_Maliyet"]:,.2f} {curr}</div>', unsafe_allow_html=True)
                 with r_cols[4]:
-                    st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem; {v_style}">{h["Deger"]:,.2f} {curr}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem;">{h["Güncel"]:,.2f} {curr}</div>', unsafe_allow_html=True)
                 with r_cols[5]:
-                    st.markdown(f'<div style="line-height:18px; padding: 4px 0; font-size:0.85rem; {g_style}" class="{g_cls}">%{h["Günlük (%)"]:.2f}<br><span style="font-size:0.7rem; opacity:0.6;">({g_kz:,.0f})</span></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="line-height:40px; color:white; font-size:0.85rem; {v_style}">{h["Deger"]:,.2f} {curr}</div>', unsafe_allow_html=True)
                 with r_cols[6]:
-                    st.markdown(f'<div style="line-height:18px; padding: 4px 0; font-size:0.85rem; {t_style}" class="{t_cls}">%{h["Toplam (%)"]:.2f}<br><span style="font-size:0.7rem; opacity:0.6;">({t_kz:,.0f})</span></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="line-height:18px; padding: 4px 0; font-size:0.85rem; {g_style}" class="{g_cls}">%{h["Günlük (%)"]:.2f}<br><span style="font-size:0.7rem; opacity:0.6;">({g_kz:,.0f})</span></div>', unsafe_allow_html=True)
                 with r_cols[7]:
+                    st.markdown(f'<div style="line-height:18px; padding: 4px 0; font-size:0.85rem; {t_style}" class="{t_cls}">%{h["Toplam (%)"]:.2f}<br><span style="font-size:0.7rem; opacity:0.6;">({t_kz:,.0f})</span></div>', unsafe_allow_html=True)
+                with r_cols[8]:
                     st.write("") # Vertical offset
                     if st.button("📊", key=f"chart_btn_{h['Varlık']}_{i}"):
                         st.session_state.chart_asset = h['Varlık']
-                        # Find original type from agg_holdings to pass to TV helper
                         orig_type = "bist hisse"
                         for ah in agg_holdings:
                             if ah['symbol'] == h['Varlık']:
