@@ -1100,6 +1100,18 @@ st.markdown(f"""
         padding-bottom: 5px !important;
     }}
 
+    /* ELIMINATE STREAMLIT RERUN DIMMING (The "Darkening" effect) */
+    div.stApp, div[data-testid="stAppViewContainer"], .stApp, 
+    div[data-testid="stAppViewBlockContainer"] {{
+        opacity: 1 !important;
+        transition: none !important;
+    }}
+    
+    /* Disable the fade-out effect during re-runs */
+    [data-testid="stAppViewContainer"] > section:first-child {{
+        opacity: 1 !important;
+    }}
+
     /* Placeholder Unification */
     ::placeholder,
     div[data-baseweb="select"] [data-baseweb="select"] div[aria-hidden="true"] {{
