@@ -508,8 +508,7 @@ def asset_management_dialog():
 
             st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
             if st.button("🚀 Varlık Ekle", type="primary", use_container_width=True, disabled=not confirm):
-                with st.spinner(f"🔍 {asset_symbol} kontrol ediliyor..."):
-                    valid_data = get_current_data(asset_symbol, asset_type)
+                valid_data = get_current_data(asset_symbol, asset_type)
                 
                 if valid_data:
                     success = add_asset(selected_portfolio, asset_symbol, asset_amount, asset_cost, asset_type, purchase_date.strftime("%Y-%m-%d"))
@@ -1414,8 +1413,8 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
             w_fetch = [{"symbol": x["symbol"], "type": x["type"]} for x in w_list]
             w_json = json.dumps(w_fetch, default=str)
             
-            with st.spinner("İzleme listesi verileri analiz ediliyor..."):
-                w_bulk = calculate_technical_scores_bulk(w_json)
+            # Use the bulk engine without an intrusive full-page spinner
+            w_bulk = calculate_technical_scores_bulk(w_json)
 
             # Pre-calculate data and scores for sorting
             enriched_watchlist = []
@@ -1586,10 +1585,8 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
     # --- PERFORMANCE OPTIMIZATION: PARALLEL FETCH & SCORE ---
     if agg_holdings:
         # 1. Fetch scores in bulk with Caching (TTL 5 mins)
-        # Convert to JSON to make it hashable for st.cache_data
         h_json = json.dumps(agg_holdings, default=str)
-        with st.spinner("Teknik Analiz Motoru Hazırlanıyor..."):
-            bulk_scores = calculate_technical_scores_bulk(h_json)
+        bulk_scores = calculate_technical_scores_bulk(h_json)
             
         # 2. SEAMLESS INJECTION: Pre-warm PRICE_CACHE with bulk results to avoid extra calls in loop
         for (bs_sym, bs_type), bs_data in bulk_scores.items():
