@@ -317,11 +317,12 @@ def calculate_technical_score_internal(hist, current_price):
     """Core logic for 0-10 technical scoring."""
     t_score = 0.0; score_color = "rgba(255,255,255,0.1)"; score_label = "N/A"
     try:
-        if not hist.empty and len(hist) > 2:
+        if not hist.empty and len(hist) > 30:
             st_series = calculate_supertrend(hist)
             kama_series = calculate_kama(hist, period=min(21, len(hist)-2))
             obv_series = calculate_obv(hist)
             adx_series = calculate_adx(hist)
+            macd_df = calculate_macd(hist)
             
             l_st = st_series.iloc[-1] if not st_series.empty else 0
             l_kama = kama_series.iloc[-1] if not kama_series.empty else 0
@@ -330,34 +331,41 @@ def calculate_technical_score_internal(hist, current_price):
             st_above = current_price > l_st and l_st > 0
             kama_above = current_price > l_kama and l_kama > 0
             
-            # Score Components
-            if st_above: t_score += 3.0
+            # 1. Trend Yönü (Max 4.5)
+            if st_above: t_score += 2.5
             if kama_above: t_score += 2.0
-            if st_above:
-                dist = ((current_price / l_st) - 1) * 100
-                if dist <= 4.0: t_score += 1.5
-                elif dist <= 12.0: t_score += 1.0
-                else: t_score += 0.4
-            if kama_above:
-                dist = ((current_price / l_kama) - 1) * 100
-                if dist <= 2.0: t_score += 1.5
-                elif dist <= 8.0: t_score += 1.0
-                else: t_score += 0.3
-            if st_above and kama_above:
-                if l_adx > 25: t_score += 1.0
-                if l_adx > 45: t_score += 1.0
-                if not obv_series.empty and len(obv_series) > 1:
-                    if obv_series.iloc[-1] >= obv_series.iloc[-2]: t_score += 1.0
-            else:
-                if not st_above and not kama_above and l_adx > 30: t_score -= 2.0
+
+            # 2. Momentum (MACD) (Max 2.5)
+            if not macd_df.empty:
+                l_macd = macd_df.iloc[-1]
+                p_macd = macd_df.iloc[-2]
+                
+                is_buy = l_macd['MACD'] > l_macd['Signal']
+                hist_rising = l_macd['Histogram'] > p_macd['Histogram']
+                
+                if is_buy:
+                    if hist_rising: t_score += 2.5 # AL (GÜÇLÜ)
+                    else: t_score += 1.5 # AL (ZAYIF)
+                else:
+                    if hist_rising: t_score += 1.0 # SAT ama dipten dönüş emaresi (SAT ZAYIF)
+                    else: pass # SAT (GÜÇLÜ) -> 0 puan
+
+            # 3. Trend Gücü (ADX) (Max 1.5)
+            if l_adx > 25: t_score += 1.0
+            if l_adx > 45: t_score += 0.5
             
+            # 4. Hacim Onayı (OBV) (Max 1.5)
+            if not obv_series.empty and len(obv_series) > 1:
+                if obv_series.iloc[-1] >= obv_series.iloc[-2]: t_score += 1.5
+            
+            # Corrections
             t_score = max(0, min(10, t_score))
-            if not st_above and not kama_above:
-                score_color = "#ff3e3e"; score_label = "TEHLİKE" if l_adx > 40 else "ZAYIF"
-            else:
-                score_color = "#ff3e3e" if t_score < 4 else ("#ffcc00" if t_score < 7.5 else "#00ff88")
-                score_label = "ZAYIF" if t_score < 4 else ("ORTA" if t_score < 7.5 else "GÜÇLÜ")
-                if t_score >= 9.0: score_label = "ELMAS"
+            
+            if t_score < 4: score_label, score_color = "ZAYIF", "#ff3e3e"
+            elif t_score < 7.5: score_label, score_color = "ORTA", "#ffcc00"
+            else: score_label, score_color = "GÜÇLÜ", "#00ff88"
+            
+            if t_score >= 9.0: score_label = "ELMAS"
     except: pass
     return t_score, score_color, score_label
 
@@ -476,7 +484,35 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
                 else: 
                     adx_label = "ÇOK GÜÇLÜ"
                     adx_col = "#00ff88" if is_uptrend else "#ff3e3e"
+                    adx_col = "#00ff88" if is_uptrend else "#ff3e3e"
                 adx_data = {"val": l_adx, "label": adx_label, "color": adx_col, "bg": f"{adx_col}20"}
+            
+            # MACD
+            macd_data = {"label": "NÖTR", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
+            try:
+                macd_df = calculate_macd(hist)
+                if not macd_df.empty:
+                    l_macd = macd_df.iloc[-1]
+                    p_macd = macd_df.iloc[-2]
+                    
+                    is_buy = l_macd['MACD'] > l_macd['Signal']
+                    hist_rising = l_macd['Histogram'] > p_macd['Histogram']
+                    
+                    if is_buy:
+                        # AL Bölgesinde (Pozitif Momentum)
+                        if hist_rising:
+                            m_lab, m_col = "AL (GÜÇLÜ)", "#00ff88"  # Momentum artıyor
+                        else:
+                            m_lab, m_col = "AL (ZAYIF)", "#aaff00"  # Momentum azalıyor (Tepe dönüşü olabilir)
+                    else:
+                        # SAT Bölgesinde (Negatif Momentum)
+                        if not hist_rising:
+                            m_lab, m_col = "SAT (GÜÇLÜ)", "#ff3e3e" # Düşüş hızlanıyor
+                        else:
+                            m_lab, m_col = "SAT (ZAYIF)", "#ffaa00" # Düşüş yavaşlıyor (Dip dönüşü olabilir)
+                        
+                    macd_data = {"label": m_lab, "color": m_col, "bg": f"{m_col}20"}
+            except: pass
 
             # Technical Score
             score, color, label = calculate_technical_score_internal(hist, curr_price)
@@ -495,7 +531,7 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
             return asset_key, {
                 "score": score, "color": color, "label": label, 
                 "price": curr_price, "prev": prev_price,
-                "st": st_data, "kama": kama_data, "obv": obv_data, "adx": adx_data,
+                "st": st_data, "kama": kama_data, "obv": obv_data, "adx": adx_data, "macd": macd_data,
                 "spark_points": " ".join(spark_points),
                 "spark_color": "#00ff88" if closes_30[-1] >= closes_30[0] else "#ff3e3e"
             }
@@ -567,6 +603,24 @@ def calculate_adx(df, period=14):
     adx = dx.rolling(period).mean().fillna(0)
     
     return adx
+
+def calculate_macd(df, fast=12, slow=26, signal=9):
+    """Calculate MACD, Signal line, and Histogram."""
+    if df.empty or len(df) < slow + signal:
+        return pd.DataFrame()
+        
+    close = df['Close']
+    exp1 = close.ewm(span=fast, adjust=False).mean()
+    exp2 = close.ewm(span=slow, adjust=False).mean()
+    macd = exp1 - exp2
+    signal_line = macd.ewm(span=signal, adjust=False).mean()
+    histogram = macd - signal_line
+    
+    return pd.DataFrame({
+        'MACD': macd,
+        'Signal': signal_line,
+        'Histogram': histogram
+    })
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_strategy_signal(symbol, asset_type):

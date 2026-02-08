@@ -1533,6 +1533,7 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
                 kama_data = res.get("kama")
                 obv_data = res.get("obv")
                 adx_data = res.get("adx")
+                macd_data = res.get("macd")
                 t_score = res.get("score", 0.0)
                 score_color = res.get("color", "rgba(255,255,255,0.1)")
                 score_label = res.get("label", "N/A")
@@ -1547,7 +1548,7 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
                 enriched_watchlist.append({
                     "item": item, "s": s, "t": t, "price": price, "pct": pct, "color": color, "sign": sign,
                     "emoji": emoji, "currency": currency, "spark": sparkline_svg,
-                    "st": st_data, "kama": kama_data, "obv": obv_data, "adx": adx_data,
+                    "st": st_data, "kama": kama_data, "obv": obv_data, "adx": adx_data, "macd": macd_data,
                     "t_score": t_score, "score_color": score_color, "score_label": score_label
                 })
 
@@ -1559,7 +1560,7 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
                 item = d["item"]; s = d["s"]; t = d["t"]; price = d["price"]; pct = d["pct"]
                 color = d["color"]; sign = d["sign"]; emoji = d["emoji"]; currency = d["currency"]
                 sparkline_svg = d["spark"]; st_data = d["st"]; kama_data = d["kama"]
-                obv_data = d["obv"]; adx_data = d["adx"]; t_score = d["t_score"]
+                obv_data = d["obv"]; adx_data = d["adx"]; macd_data = d["macd"]; t_score = d["t_score"]
                 score_color = d["score_color"]; score_label = d["score_label"]
 
                 initial_p = item.get("initial_price", 0)
@@ -1599,6 +1600,10 @@ if st.session_state.active_tab == "İZLEME LİSTESİ":
                                 <div style="background:{adx_data['bg']}; border:1px solid {adx_data['color']}40; padding:2px 6px; border-radius:4px; font-size:0.6rem; color:{adx_data['color']}; text-align:center; min-width:60px;">
                                     <div style="font-weight:700; opacity:0.8;">ADX {adx_data['val']:.1f}</div>
                                     <div style="font-weight:800;">{adx_data['label']}</div>
+                                </div>
+                                <div style="background:{macd_data['bg']}; border:1px solid {macd_data['color']}40; padding:2px 6px; border-radius:4px; font-size:0.6rem; color:{macd_data['color']}; text-align:center; min-width:60px;">
+                                    <div style="font-weight:700; opacity:0.8;">MACD</div>
+                                    <div style="font-weight:800;">{macd_data['label']}</div>
                                 </div>
                             </div>
                         </div>
