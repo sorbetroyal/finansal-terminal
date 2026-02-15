@@ -432,7 +432,7 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
                 hist = get_history(sym, period=period, asset_type=t)
             
             if hist.empty:
-                return asset_key, {"error": "Empty history"}
+                return asset_key, {"score": 0.0, "color": "rgba(255,255,255,0.1)", "label": "N/A", "price": 0, "prev": 0, "error": "Empty history"}
 
             curr_price = float(hist['Close'].iloc[-1])
             prev_price = float(hist['Close'].iloc[-2]) if len(hist) > 1 else curr_price

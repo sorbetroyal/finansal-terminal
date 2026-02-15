@@ -1702,9 +1702,9 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
                     elif s_up in ["EUR", "EYR"]: std_s = "EURTRY=X"
                 
                 PRICE_CACHE[(std_s, bs_type.lower())] = {
-                    "price": bs_data["price"],
-                    "prev_close": bs_data["prev"],
-                    "change_pct": ((bs_data["price"]/bs_data["prev"])-1)*300 if bs_data["prev"] else 0
+                    "price": bs_data.get("price", 0),
+                    "prev_close": bs_data.get("prev", 0),
+                    "change_pct": ((bs_data.get("price", 0)/bs_data.get("prev", 1))-1)*100 if bs_data.get("prev", 0) else 0
                 }
     else:
         bulk_scores = {}
@@ -1730,10 +1730,10 @@ if st.session_state.active_tab in ["PORTFÖYÜM", "PORTFÖY ANALİZİ"]:
             v = p_val_orig * rate
             
             # Use pre-calculated bulk score (instant)
-            score_data = bulk_scores.get((sym, t), {"score": 0.0, "color": "rgba(255,255,255,0.1)", "label": "N/A"})
-            t_score = score_data["score"]
-            score_color = score_data["color"]
-            score_label = score_data["label"]
+            score_data = bulk_scores.get((sym, t), {})
+            t_score = score_data.get("score", 0.0)
+            score_color = score_data.get("color", "rgba(255,255,255,0.1)")
+            score_label = score_data.get("label", "N/A")
 
             # Let's populate detailed_list here
             detailed_list.append({
