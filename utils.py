@@ -381,7 +381,10 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
     unique_assets = []
     seen = set()
     for h in holdings:
-        key = (h["symbol"], h.get("type", "bist hisse"))
+        s = h.get("symbol", "")
+        t = str(h.get("type", "bist hisse")).lower().strip()
+        if not s: continue
+        key = (s, t)
         if key not in seen:
             unique_assets.append(key)
             seen.add(key)
@@ -392,8 +395,7 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
     
     for key in unique_assets:
         sym, t = key
-        t_low = t.lower()
-        if any(x in t_low for x in ["tefas", "fon", "bes", "oks"]) or is_gold_tl_asset(sym):
+        if any(x in t for x in ["tefas", "fon", "bes", "oks"]) or is_gold_tl_asset(sym):
             special_keys.append(key)
         else:
             yf_keys.append(key)
@@ -407,9 +409,9 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
             for k in yf_keys:
                 s, t = k
                 std_s = s
-                if "bist" in t.lower() and not std_s.endswith(".IS"): std_s = f"{std_s}.IS"
-                elif "kripto" in t.lower() and "-" not in std_s: std_s = f"{std_s}-USD"
-                elif "döviz" in t.lower():
+                if "bist" in t and not std_s.endswith(".IS"): std_s = f"{std_s}.IS"
+                elif "kripto" in t and "-" not in std_s: std_s = f"{std_s}-USD"
+                elif "döviz" in t:
                     s_up = s.upper()
                     if s_up == "USD": std_s = "USDTRY=X"
                     elif s_up in ["EUR", "EYR"]: std_s = "EURTRY=X"
@@ -419,9 +421,11 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
             # One shot download - this is the most efficient way for YF
             df_bulk = yf.download(yf_symbols, period=period, group_by='ticker', progress=False, threads=True)
             for std_s in yf_symbols:
-                ticker_df = df_bulk[std_s] if len(yf_symbols) > 1 else df_bulk
-                if not ticker_df.empty:
-                    bulk_hist_data[symbol_to_key[std_s]] = ticker_df.dropna(subset=['Close'])
+                try:
+                    ticker_df = df_bulk[std_s] if len(yf_symbols) > 1 else df_bulk
+                    if ticker_df is not None and not ticker_df.empty and 'Close' in ticker_df.columns:
+                        bulk_hist_data[symbol_to_key[std_s]] = ticker_df.dropna(subset=['Close'])
+                except: continue
         except: pass
 
     def process_single(asset_key):
@@ -431,93 +435,86 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
             if hist.empty or len(hist) < 5:
                 hist = get_history(sym, period=period, asset_type=t)
             
-            if hist.empty:
-                return asset_key, {"score": 0.0, "color": "rgba(255,255,255,0.1)", "label": "N/A", "price": 0, "prev": 0, "error": "Empty history"}
+            if hist.empty or 'Close' not in hist.columns:
+                return asset_key, {"score": 0.0, "color": "rgba(255,255,255,0.1)", "label": "N/A", "price": 0, "prev": 0}
 
-            curr_price = float(hist['Close'].iloc[-1])
-            prev_price = float(hist['Close'].iloc[-2]) if len(hist) > 1 else curr_price
-            
-            # 1. Indicators
+            # 1. Indicators with robust defaults
             st_data = {"val": 0, "dist": 0, "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
             kama_data = {"val": 0, "dist": 0, "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
             obv_data = {"trend": "Nötr", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
             adx_data = {"val": 0, "label": "ZAYIF", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
+            macd_data = {"label": "NÖTR", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
             
             # Supertrend
-            st_series = calculate_supertrend(hist)
-            if not st_series.empty:
-                l_st = st_series.iloc[-1]
-                if l_st > 0:
-                    st_dist = ((curr_price / l_st) - 1) * 100
-                    st_color = "#00ff88" if curr_price > l_st else "#ff3e3e"
-                    st_data = {"val": l_st, "dist": st_dist, "color": st_color, "bg": f"{st_color}20"}
+            try:
+                st_series = calculate_supertrend(hist)
+                if not st_series.empty:
+                    l_st = st_series.iloc[-1]
+                    if l_st > 0:
+                        st_dist = ((curr_price / l_st) - 1) * 100
+                        st_color = "#00ff88" if curr_price > l_st else "#ff3e3e"
+                        st_data = {"val": float(l_st), "dist": float(st_dist), "color": st_color, "bg": f"{st_color}20"}
+            except: pass
             
             # KAMA
-            kama_series = calculate_kama(hist, period=min(21, len(hist)-2))
-            if not kama_series.empty:
-                l_kama = kama_series.iloc[-1]
-                if l_kama > 0:
-                    kama_dist = ((curr_price / l_kama) - 1) * 100
-                    kama_color = "#00ff88" if curr_price > l_kama else "#ff3e3e"
-                    kama_data = {"val": l_kama, "dist": kama_dist, "color": kama_color, "bg": f"{kama_color}20"}
+            try:
+                kama_series = calculate_kama(hist, period=min(21, len(hist)-2))
+                if not kama_series.empty:
+                    l_kama = kama_series.iloc[-1]
+                    if l_kama > 0:
+                        kama_dist = ((curr_price / l_kama) - 1) * 100
+                        kama_color = "#00ff88" if curr_price > l_kama else "#ff3e3e"
+                        kama_data = {"val": float(l_kama), "dist": float(kama_dist), "color": kama_color, "bg": f"{kama_color}20"}
+            except: pass
             
             # OBV
-            obv_series = calculate_obv(hist)
-            if not obv_series.empty and len(obv_series) > 1:
-                l_obv = obv_series.iloc[-1]; p_obv = obv_series.iloc[-2]
-                obv_trend = "Yükselen" if l_obv >= p_obv else "Düşen"
-                obv_color = "#00ff88" if obv_trend == "Yükselen" else "#ff3e3e"
-                obv_data = {"trend": obv_trend, "color": obv_color, "bg": f"{obv_color}20"}
+            try:
+                obv_series = calculate_obv(hist)
+                if not obv_series.empty and len(obv_series) > 1:
+                    l_obv = obv_series.iloc[-1]; p_obv = obv_series.iloc[-2]
+                    obv_trend = "Yükselen" if l_obv >= p_obv else "Düşen"
+                    obv_color = "#00ff88" if obv_trend == "Yükselen" else "#ff3e3e"
+                    obv_data = {"trend": obv_trend, "color": obv_color, "bg": f"{obv_color}20"}
+            except: pass
             
             # ADX
-            adx_series = calculate_adx(hist); l_adx = 0
-            if not adx_series.empty:
-                l_adx = adx_series.iloc[-1]
-                is_uptrend = curr_price > kama_data["val"] if kama_data["val"] > 0 else True
-                if l_adx < 20: adx_label, adx_col = "ZAYIF", "#cccccc"
-                elif l_adx < 25:
-                    adx_label = "ORTA"
-                    adx_col = "#00ff88" if is_uptrend else "#ff3e3e"
-                elif l_adx < 50:
-                    adx_label = "GÜÇLÜ"
-                    adx_col = "#00ff88" if is_uptrend else "#ff3e3e"
-                else: 
-                    adx_label = "ÇOK GÜÇLÜ"
-                    adx_col = "#00ff88" if is_uptrend else "#ff3e3e"
-                    adx_col = "#00ff88" if is_uptrend else "#ff3e3e"
-                adx_data = {"val": l_adx, "label": adx_label, "color": adx_col, "bg": f"{adx_col}20"}
+            try:
+                adx_series = calculate_adx(hist); l_adx = 0
+                if not adx_series.empty:
+                    l_adx = adx_series.iloc[-1]
+                    is_uptrend = curr_price > kama_data["val"] if kama_data.get("val", 0) > 0 else True
+                    if l_adx < 20: adx_label, adx_col = "ZAYIF", "#cccccc"
+                    elif l_adx < 25:
+                        adx_label, adx_col = "ORTA", ("#00ff88" if is_uptrend else "#ff3e3e")
+                    elif l_adx < 50:
+                        adx_label, adx_col = "GÜÇLÜ", ("#00ff88" if is_uptrend else "#ff3e3e")
+                    else: 
+                        adx_label, adx_col = "ÇOK GÜÇLÜ", ("#00ff88" if is_uptrend else "#ff3e3e")
+                    adx_data = {"val": float(l_adx), "label": adx_label, "color": adx_col, "bg": f"{adx_col}20"}
+            except: pass
             
             # MACD
-            macd_data = {"label": "NÖTR", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"}
             try:
                 macd_df = calculate_macd(hist)
                 if not macd_df.empty:
                     l_macd = macd_df.iloc[-1]
                     p_macd = macd_df.iloc[-2]
-                    
                     is_buy = l_macd['MACD'] > l_macd['Signal']
                     hist_rising = l_macd['Histogram'] > p_macd['Histogram']
-                    
                     if is_buy:
-                        # AL Bölgesinde (Pozitif Momentum)
-                        if hist_rising:
-                            m_lab, m_col = "AL (GÜÇLÜ)", "#00ff88"  # Momentum artıyor
-                        else:
-                            m_lab, m_col = "AL (ZAYIF)", "#aaff00"  # Momentum azalıyor (Tepe dönüşü olabilir)
+                        m_lab, m_col = ("AL (GÜÇLÜ)", "#00ff88") if hist_rising else ("AL (ZAYIF)", "#aaff00")
                     else:
-                        # SAT Bölgesinde (Negatif Momentum)
-                        if not hist_rising:
-                            m_lab, m_col = "SAT (GÜÇLÜ)", "#ff3e3e" # Düşüş hızlanıyor
-                        else:
-                            m_lab, m_col = "SAT (ZAYIF)", "#ffaa00" # Düşüş yavaşlıyor (Dip dönüşü olabilir)
-                        
+                        m_lab, m_col = ("SAT (GÜÇLÜ)", "#ff3e3e") if not hist_rising else ("SAT (ZAYIF)", "#ffaa00")
                     macd_data = {"label": m_lab, "color": m_col, "bg": f"{m_col}20"}
             except: pass
 
             # Technical Score
-            score, color, label = calculate_technical_score_internal(hist, curr_price)
+            try:
+                score, color, label = calculate_technical_score_internal(hist, curr_price)
+            except:
+                score, color, label = 0.0, "rgba(255,255,255,0.1)", "N/A"
             
-            # Sparkline Points (Last 30 days)
+            # Sparkline
             spark_points = []
             closes_30 = hist['Close'].tail(30).values
             if len(closes_30) > 1:
@@ -529,20 +526,31 @@ def calculate_technical_scores_bulk(holdings_json, period="3mo"):
                     spark_points.append(f"{px:.1f},{py:.1f}")
             
             return asset_key, {
-                "score": score, "color": color, "label": label, 
-                "price": curr_price, "prev": prev_price,
+                "score": float(score), "color": str(color), "label": str(label), 
+                "price": float(curr_price), "prev": float(prev_price),
                 "st": st_data, "kama": kama_data, "obv": obv_data, "adx": adx_data, "macd": macd_data,
                 "spark_points": " ".join(spark_points),
-                "spark_color": "#00ff88" if closes_30[-1] >= closes_30[0] else "#ff3e3e"
+                "spark_color": "#00ff88" if len(closes_30) > 0 and closes_30[-1] >= closes_30[0] else "#ff3e3e"
             }
-        except: pass
-        return asset_key, {"score": 0, "color": "rgba(255,255,255,0.1)", "label": "N/A", "price": 0, "prev": 0}
+        except Exception:
+            return asset_key, {
+                "score": 0.0, "color": "rgba(255,255,255,0.1)", "label": "N/A", "price": 0, "prev": 0,
+                "st": {"val": 0, "dist": 0, "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"},
+                "kama": {"val": 0, "dist": 0, "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"},
+                "obv": {"trend": "Nötr", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"},
+                "adx": {"val": 0, "label": "ZAYIF", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"},
+                "macd": {"label": "NÖTR", "color": "#cccccc", "bg": "rgba(255,255,255,0.05)"},
+                "spark_points": "", "spark_color": "#cccccc"
+            }
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=min(10, len(unique_assets) or 1)) as executor:
         batch_results = list(executor.map(process_single, unique_assets))
         
     for key, data in batch_results:
-        results[key] = data
+        if key and data:
+            results[key] = data
+        
+    return results
         
     return results
 
@@ -631,10 +639,10 @@ def get_strategy_signal(symbol, asset_type):
     try:
         # Fetch at least 60 days to have enough room for 21-period indicators
         hist = get_history(symbol, period="60d", asset_type=asset_type)
-        if hist.empty or len(hist) < 30:
+        if hist.empty or len(hist) < 30 or 'Close' not in hist.columns:
             return False
             
-        current_price = hist['Close'].iloc[-1]
+        current_price = float(hist['Close'].iloc[-1])
         kama = calculate_kama(hist, period=21)
         st_val = calculate_supertrend(hist, period=10, multiplier=3)
         
